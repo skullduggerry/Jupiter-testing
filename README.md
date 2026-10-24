@@ -5,7 +5,7 @@ The tests of [Jupiter-dotfiles](https://codeberg.org/skullduggery/Jupiter-dotfil
 ```bash
 git clone https://codeberg.org/skullduggery/Jupiter-dotfiles.git
 git clone https://codeberg.org/skullduggery/Jupiter-installer.git
-git clone <this repo> Jupiter-testing
+git clone https://codeberg.org/skullduggery/Jupiter-testing.git
 ```
 
 or point `JUPITER_DOTFILES` and `JUPITER_INSTALLER` at wherever they are (and the other two repos' `JUPITER_TESTING` at this one). Each repo's `scripts/check.sh` runs its share of the tests from here.
