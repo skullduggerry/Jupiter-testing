@@ -2,7 +2,9 @@
 
 It installs every udev rule and pacman hook in etc/ and the script the hook
 runs, where the hook looks for it, then runs that script once over the
-desktop entries already there; it leaves udev alone outside the real root
+desktop entries already there; it puts root's copy of the login screen's
+installer, with greetd's config and the PAM stacks, where the Settings app
+runs it through pkexec; it leaves udev alone outside the real root
 (a stand-in udevadm on PATH would note a call), and running it twice is the
 same as once.
 """
@@ -68,6 +70,22 @@ class InstallSystem(unittest.TestCase):
         copy = self.root / "usr/local/share/applications/cloud.desktop"
         self.assertTrue(copy.exists(), "entries already there got their copy")
         self.assertFalse((self.tmp / "udevadm").exists(), "udev left alone")
+
+    def test_roots_copy_of_the_login_screens_installer(self) -> None:
+        self.assertEqual(self.install().returncode, 0)
+        greeter = self.root / "usr/local/lib/jupiter/greeter"
+        for name, mode in (
+            ("scripts/install-greeter.sh", "0o755"),
+            ("etc/greetd/config.toml", "0o644"),
+            ("etc/pam.d/greetd", "0o644"),
+            ("etc/pam.d/greetd-greeter", "0o644"),
+        ):
+            with self.subTest(name):
+                installed = greeter / name
+                self.assertEqual(
+                    installed.read_bytes(), (DOTFILES / name).read_bytes()
+                )
+                self.assertEqual(oct(installed.stat().st_mode & 0o777), mode)
 
     def test_twice_is_once(self) -> None:
         self.install()

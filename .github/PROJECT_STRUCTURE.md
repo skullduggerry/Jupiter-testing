@@ -84,11 +84,15 @@ records whatever reaches another origin; one on 127.0.0.2 stands for plain
 http on another host, since the helpers do not take that address for
 loopback. What reaches either must be nothing.
 
-**Root** (`dotfiles/security/test_login_screen.py`). `install-greeter.sh`
-runs as root through pkexec. The test runs it as root of a user namespace
+**Root** (`dotfiles/security/test_login_screen.py`). The Lock Screen tab
+runs root's copy of `install-greeter.sh` (which `install-system.sh` puts in
+`/usr/local/lib/jupiter/greeter`) through pkexec, with `--from` the owner's
+clone. The test makes that copy, then runs it as root of a user namespace
 with subordinate ids (`unshare --map-auto`, newuidmap), a fake
-`/etc/passwd` naming the owner, her home hers and a folder root's: what she
-cannot read must not reach the installed tree.
+`/etc/passwd` naming the owner, her home and clone hers and a folder root's,
+and stand-ins bound over `/etc/greetd` and `/etc/pam.d`: what she cannot
+read must not reach the installed tree, and what runs as root must be
+root's copy, whatever her clone says.
 
 ## The security model
 
@@ -106,8 +110,10 @@ What the security suites hold the code to, and where:
   user ends it, only a listed session starts, as its argv; only people with a
   login shell are offered, by name alone; greetd runs the greeter as
   `greeter`, whose compositor runs nothing else; the PAM stacks let no one in
-  unasked; the installer reads the owner's files as the owner, installs no
-  file that is no image, and nothing anyone else can write.
+  unasked; Apply runs root's copy of the installer, which takes greetd's
+  config and the PAM stacks from that copy whatever the clone says, reads the
+  clone and the owner's files as the owner, installs no file that is no
+  image, and nothing anyone else can write.
   (`test_login_screen.py`, `qml/Greeter*Test.qml`)
 - **Nextcloud**: the app password goes to the configured server only, over
   https or loopback, never through a redirect, an href or a principal that

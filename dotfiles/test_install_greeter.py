@@ -9,8 +9,9 @@ Settings app kept are baked into the copy, applied after the config's own as
 in the session, and so are the keyboard layouts it kept, over the system's
 (/etc/vconsole.conf). The desktop's theme goes beside the greeter, which its
 compositor names, and the Lock Screen choices installed with it record which
-theme that was. What it may and may not copy out of the owner's home is
-security/test_login_screen.py's.
+theme that was. With --from it takes what the greeter runs from another
+clone, and greetd's config and the PAM stacks from its own tree. What it may
+and may not copy out of the owner's home is security/test_login_screen.py's.
 """
 
 from __future__ import annotations
@@ -63,10 +64,10 @@ class InstallGreeter(unittest.TestCase):
             "XKBOPTIONS=terminate:ctrl_alt_bksp\n"
         )
 
-    def install(self, name: str) -> Path:
+    def install(self, name: str, *options: str) -> Path:
         dest = self.tmp / name
         run = subprocess.run(
-            ["bash", str(SCRIPT), str(dest)],
+            ["bash", str(SCRIPT), *options, str(dest)],
             capture_output=True,
             text=True,
             env=environment(
@@ -75,7 +76,7 @@ class InstallGreeter(unittest.TestCase):
             check=False,
         )
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.stderr = run.stderr
+        self.stdout, self.stderr = run.stdout, run.stderr
         return dest
 
     def lua(self, script: str) -> str:
@@ -196,6 +197,34 @@ class InstallGreeter(unittest.TestCase):
         )
         self.assertEqual(self.layouts(dest), "us,de")
         self.verifies(dest)
+
+    def test_from_another_clone(self) -> None:
+        clone = self.tmp / "clone"
+        shutil.copytree(
+            DOTFILES,
+            clone,
+            symlinks=True,
+            ignore=shutil.ignore_patterns(".git", "__pycache__", "*_cache"),
+        )
+        service = clone / "etc/greetd/quickshell/GreeterService.qml"
+        service.write_text(service.read_text() + "// the clone's\n")
+        (clone / "etc/greetd/config.toml").write_text("# the clone's\n")
+        dest = self.install("greetd-clone", "--from", str(clone))
+        self.assertIn(f"repo        {clone}", self.stdout)
+        self.assertTrue(
+            (dest / "quickshell/GreeterService.qml")
+            .read_text()
+            .endswith("// the clone's\n"),
+            "what the greeter runs is the clone's",
+        )
+        self.assertEqual(
+            # A staging install names itself where /etc/greetd stood.
+            (dest / "config.toml")
+            .read_text()
+            .replace(str(dest), "/etc/greetd"),
+            (DOTFILES / "etc/greetd/config.toml").read_text(),
+            "greetd's config is the script's own tree's",
+        )
 
     def test_a_fresh_install_has_no_wallpaper_yet(self) -> None:
         self.wallpaper.unlink()

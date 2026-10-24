@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -20,7 +21,7 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from harness import DOTFILES, environment, load, qml, temporary
+from harness import DOTFILES, environment, load, qml, source, temporary
 
 QML = Path(__file__).resolve().parent / "qml"
 GREETER_ENV = DOTFILES / "etc/greetd/quickshell/greeter-env.py"
@@ -262,65 +263,78 @@ class Installing(unittest.TestCase):
             self.assertEqual(mode & 0o022, 0, f"{path} is writable by others")
             self.assertEqual(mode & 0o004, 0o004, f"{path} is not readable")
 
-    @unittest.skipUnless(shutil.which("newuidmap"), "needs newuidmap")
-    def test_as_root_the_owners_files_are_read_as_the_owner(self) -> None:
-        """As pkexec runs it: root, with PKEXEC_UID the owner's. The owner's
-        login image is a file only root can read, and each other file of
-        hers the script copies a link to it; none of it may reach the
-        installed tree."""
-        root = Path(self.enterContext(tempfile.TemporaryDirectory(dir="/tmp")))
-        root.chmod(0o755)
-        home = root / "home/jane"
-        private = root / "root-only"
+
+# As root of a namespace with jane in it: /etc/passwd says who she is, her
+# home is hers, the rest root's, and the folders after the home are bound
+# over the system's (their names follow, then a --). Her files are root's
+# again after, or the test could not remove them.
+SETUP = """
+mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group || exit 90
+home=$3
+shift 3
+while [ "$1" != -- ]; do mount --bind "$1" "$2" || exit 90; shift 2; done
+shift
+chown -R -h 1000:1000 "$home"
+"$@"
+status=$?
+chown -R -h 0:0 "$home"
+exit $status
+"""
+
+
+@unittest.skipUnless(shutil.which("newuidmap"), "needs newuidmap")
+class AsRoot(unittest.TestCase):
+    """install-greeter.sh as the Lock Screen tab runs it: root's copy
+    (scripts/install-system.sh puts it in /usr/local/lib/jupiter/greeter)
+    through pkexec, PKEXEC_UID the owner's and --from her clone. What she
+    cannot read must not get out, and what runs as root (greetd's config, the
+    PAM stacks) must be root's copy, whatever her clone says."""
+
+    def setUp(self) -> None:
+        self.root = Path(
+            self.enterContext(tempfile.TemporaryDirectory(dir="/tmp"))
+        )
+        self.root.chmod(0o755)
+        self.home = self.root / "home/jane"
+        private = self.root / "root-only"
         private.mkdir(mode=0o700)
-        secret = private / "secret.jpg"
-        secret.write_bytes(JPEG + f"\n{ROOT_ONLY}\n".encode())
-        state = home / ".local/state"
-        cache = home / ".cache"
+        self.secret = private / "secret.jpg"
+        self.secret.write_bytes(JPEG + f"\n{ROOT_ONLY}\n".encode())
+        self.state = self.home / ".local/state"
+        cache = self.home / ".cache"
         for folder in (
-            state / "quickshell",
-            state / "wallust",
+            self.state / "quickshell",
+            self.state / "wallust",
             cache / "wallust",
         ):
             folder.mkdir(parents=True)
-        # Her login image is root's file, named outright; everything else
-        # she has is a link to it.
-        (state / "quickshell/lockscreen.json").write_text(
-            json.dumps({"loginBackground": "image", "loginImage": str(secret)})
-        )
-        for link in (
-            state / "quickshell/monitors.lua",
-            state / "quickshell/keyboard.lua",
-            state / "quickshell/appearance.json",
-            state / "quickshell/hyprpaper.conf",
-            state / "wallust/theme",
-            cache / "wallust/quickshell.json",
-        ):
-            link.symlink_to(secret)
-        passwd = root / "passwd"
-        passwd.write_text(
+        (self.root / "passwd").write_text(
             "root:x:0:0::/root:/bin/bash\n"
-            f"jane:x:{OWNER}:{OWNER}:Jane:{home}:/bin/bash\n"
+            f"jane:x:{OWNER}:{OWNER}:Jane:{self.home}:/bin/bash\n"
         )
-        group = root / "group"
-        group.write_text(f"root:x:0:\njane:x:{OWNER}:\n")
-        dest = root / "greetd"
-        # Her clone of the dotfiles, which the Settings app runs it from.
-        repo = home / DOTFILES.name
+        (self.root / "group").write_text(f"root:x:0:\njane:x:{OWNER}:\n")
+        # Her clone of the dotfiles, which the Settings app names.
+        self.repo = self.home / DOTFILES.name
         shutil.copytree(
             DOTFILES,
-            repo,
+            self.repo,
             symlinks=True,
             ignore=shutil.ignore_patterns(".git", "__pycache__", "*_cache"),
         )
-        # As root of a namespace with jane in it: /etc/passwd says who she
-        # is, her home is hers, the private folder root's. Her files are
-        # root's again after, or the test could not remove them.
-        setup = (
-            'mount --bind "$1" /etc/passwd && mount --bind "$2" /etc/group'
-            ' && chown -R -h 1000:1000 "$3" && home=$3 && shift 3'
-            ' && { "$@"; status=$?; chown -R -h 0:0 "$home"; exit $status; }'
+        # Root's copy of the installer, as install-system.sh leaves it.
+        system = self.root / "system"
+        subprocess.run(
+            ["bash", str(DOTFILES / "scripts/install-system.sh"), str(system)],
+            capture_output=True,
+            check=True,
+            env=environment(),
         )
+        self.trusted = system / "usr/local/lib/jupiter/greeter"
+
+    def install(
+        self, dest: str, binds: tuple[tuple[Path, str], ...] = ()
+    ) -> subprocess.CompletedProcess[str]:
+        bound = [part for pair in binds for part in (str(pair[0]), pair[1])]
         result = subprocess.run(
             [
                 "unshare",
@@ -330,14 +344,18 @@ class Installing(unittest.TestCase):
                 "--",
                 "sh",
                 "-c",
-                setup,
+                SETUP,
                 "sh",
-                str(passwd),
-                str(group),
-                str(root / "home"),
+                str(self.root / "passwd"),
+                str(self.root / "group"),
+                str(self.root / "home"),
+                *bound,
+                "--",
                 "bash",
-                str(repo / INSTALL.relative_to(DOTFILES)),
-                str(dest),
+                str(self.trusted / "scripts/install-greeter.sh"),
+                "--from",
+                str(self.repo),
+                dest,
             ],
             capture_output=True,
             text=True,
@@ -353,18 +371,131 @@ class Installing(unittest.TestCase):
             },
             check=False,
         )
-        if "newuidmap" in result.stderr or "unshare:" in result.stderr:
+        if result.returncode == 90 or "newuidmap" in result.stderr:
             self.skipTest(f"no namespace for two users: {result.stderr}")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
-            f"no wallpaper at '{secret}'", result.stderr, "refused as jane"
-        )
-        leaked = [
+        return result
+
+    def leaked(self, dest: Path) -> list[str]:
+        return [
             str(path.relative_to(dest))
             for path in dest.rglob("*")
             if path.is_file() and ROOT_ONLY.encode() in path.read_bytes()
         ]
-        self.assertEqual(leaked, [], "copied as root, readable by everyone")
+
+    def test_the_owners_files_are_read_as_the_owner(self) -> None:
+        # Her login image is root's file, named outright; everything else
+        # she has is a link to it.
+        (self.state / "quickshell/lockscreen.json").write_text(
+            json.dumps(
+                {"loginBackground": "image", "loginImage": str(self.secret)}
+            )
+        )
+        for link in (
+            self.state / "quickshell/monitors.lua",
+            self.state / "quickshell/keyboard.lua",
+            self.state / "quickshell/appearance.json",
+            self.state / "quickshell/hyprpaper.conf",
+            self.state / "wallust/theme",
+            self.home / ".cache/wallust/quickshell.json",
+        ):
+            link.symlink_to(self.secret)
+        dest = self.root / "greetd"
+        result = self.install(str(dest))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"no wallpaper at '{self.secret}'", result.stderr)
+        self.assertEqual(self.leaked(dest), [], "copied as root")
+
+    def test_her_clone_is_read_as_her(self) -> None:
+        # A greeter file of her clone that is a link to root's: it cannot be
+        # read, and the install stops.
+        (self.repo / "etc/greetd/quickshell/Stolen.qml").symlink_to(
+            self.secret
+        )
+        dest = self.root / "greetd"
+        result = self.install(str(dest))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.leaked(dest), [], "copied as root")
+
+    @unittest.skipUnless(Path("/etc/greetd").is_dir(), "needs /etc/greetd")
+    def test_what_runs_as_root_is_roots(self) -> None:
+        # Her clone would have greetd run the greeter as root, and let anyone
+        # in without a password.
+        (self.repo / "etc/greetd/config.toml").write_text(
+            '[default_session]\ncommand = "sh"\nuser = "root"\n'
+        )
+        for name in ("greetd", "greetd-greeter"):
+            (self.repo / "etc/pam.d" / name).write_text(
+                "auth sufficient pam_permit.so\n"
+            )
+        # The real install, into stand-ins bound over /etc/greetd and
+        # /etc/pam.d.
+        greetd = self.root / "etc-greetd"
+        pam = self.root / "etc-pam.d"
+        greetd.mkdir()
+        pam.mkdir()
+        result = self.install(
+            "/etc/greetd", ((greetd, "/etc/greetd"), (pam, "/etc/pam.d"))
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (greetd / "config.toml").read_text(),
+            (DOTFILES / "etc/greetd/config.toml").read_text(),
+        )
+        for name in ("greetd", "greetd-greeter"):
+            self.assertEqual(
+                (pam / name).read_text(),
+                (DOTFILES / "etc/pam.d" / name).read_text(),
+            )
+        # And what the greeter user runs is still hers, as she changed it.
+        self.assertEqual(
+            (greetd / "quickshell/GreeterService.qml").read_text(),
+            (
+                self.repo / "etc/greetd/quickshell/GreeterService.qml"
+            ).read_text(),
+        )
+
+
+class Applying(unittest.TestCase):
+    """What the Lock Screen tab's Apply runs as root, and what that reads."""
+
+    def test_apply_runs_roots_copy(self) -> None:
+        page = (
+            DOTFILES / ".config/quickshell/settings/LockPage.qml"
+        ).read_text()
+        [installer] = [
+            block
+            for block in source.objects(page, "Process")
+            if "pkexec" in block.text
+        ]
+        command = source.binding(installer.text, "command") or ""
+        self.assertIn(
+            '"/usr/local/lib/jupiter/greeter/scripts/install-greeter.sh"',
+            command,
+        )
+        self.assertIn('exec pkexec \\"$1\\" --from', command)
+        # Only the clone is named from the home, and only after --from.
+        self.assertEqual(command.count("Quickshell.shellDir"), 1)
+
+    def test_root_reads_the_clone_only_as_the_owner(self) -> None:
+        script = INSTALL.read_text()
+        for number, line in enumerate(script.splitlines(), 1):
+            if '"$repo' in line or "$repo/" in line:
+                with self.subTest(line=number):
+                    # Through owned (copy() is), a path named for that, or
+                    # the loop over the names copy() reads.
+                    self.assertTrue(
+                        "owned " in line
+                        or re.fullmatch(r"\s*\w+=\$repo/\S+", line)
+                        or line.lstrip().startswith(("for f in", "echo "))
+                        or line.lstrip().startswith("copy "),
+                        f"install-greeter.sh:{number} reads the clone as root: {line}",
+                    )
+        for trusted in (
+            '"$self/etc/greetd/config.toml"',
+            '"$self/etc/pam.d/greetd"',
+            '"$self/etc/pam.d/greetd-greeter"',
+        ):
+            self.assertIn(trusted, script)
 
 
 if __name__ == "__main__":
