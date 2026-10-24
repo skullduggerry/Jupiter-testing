@@ -1,0 +1,3 @@
+#!/bin/sh
+# Notes what Hyprland is asked to run.
+printf '%s\n' "$*" >>"@FIXTURES@/hyprctl"

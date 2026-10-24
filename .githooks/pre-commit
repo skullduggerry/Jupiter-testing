@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Formats the staged files, stages them again, then runs the checks.
+# Install with: scripts/install-hooks.sh
+exec "$(git rev-parse --show-toplevel)/scripts/check.sh" --fix --staged

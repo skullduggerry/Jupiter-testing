@@ -1,0 +1,4 @@
+#!/bin/sh
+read -r code
+echo "$code" >>"@FIXTURES@/codes"
+[ "$code" = 123456 ] || { echo "Wrong code"; exit 1; }

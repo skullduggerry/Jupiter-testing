@@ -1,0 +1,13 @@
+{
+    "alice": [{"secret": "Password:", "answer": "@SECRET@"}],
+    "bob": [
+        {"secret": "Password:", "answer": "@SECRET@"},
+        {"visible": "Verification code:", "answer": "123456"}
+    ],
+    "carol": [
+        {"secret": "Password:", "answer": "@SECRET@"},
+        {"info": "The account is locked due to 3 failed logins."},
+        {"fail": true}
+    ],
+    "dave": [{"refuse": "dave may not log in here"}]
+}

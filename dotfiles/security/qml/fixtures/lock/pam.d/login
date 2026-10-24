@@ -1,0 +1,8 @@
+#%PAM-1.0
+# The lock's "login" stack in the lock tests: the password is the harness's,
+# and "locked out" is refused with what pam_faillock says, as the system's
+# stack would after too many failures.
+auth     [success=1 default=ignore]  pam_exec.so expose_authtok quiet stdout @FIXTURES@/check-password
+auth     requisite                   pam_deny.so
+auth     required                    pam_permit.so
+account  required                    pam_permit.so

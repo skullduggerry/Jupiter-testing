@@ -1,0 +1,13 @@
+{
+    "accent": "green",
+    "adaptiveTint": false,
+    "applyToApps": true,
+    "blur": true,
+    "blurSize": 6,
+    "darkTheme": "Oxocarbon-Dark",
+    "darkTint": 0.6,
+    "font": "",
+    "lightTheme": "Catppuccin-Latte",
+    "lightTint": 0.8,
+    "swoosh": false
+}

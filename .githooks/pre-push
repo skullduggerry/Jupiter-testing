@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# The full suite, whole tree, no auto-fixing: pushing should not rewrite code.
+exec "$(git rev-parse --show-toplevel)/scripts/check.sh"

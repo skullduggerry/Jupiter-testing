@@ -1,0 +1,38 @@
+# The settings of the tools scripts/check.sh and scripts/test.sh run; the
+# repo is no package. The suites need nothing beyond Python's standard
+# library and what the two repos under test need themselves.
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "B", "UP", "I", "SIM", "RUF", "PLW1510"]
+# ruff format wraps the code; a long string or comment stays as written.
+ignore = ["E501"]
+# The keymap's dead keys, as the accents they type.
+allowed-confusables = ["´", "¸", "˛"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["harness", "dotfiles", "installer"]
+
+[tool.mypy]
+strict = true
+# The helpers under test are scripts loaded by path, typed as Any.
+warn_return_any = false
+
+# scripts/test.sh runs the suites with COVERAGE_PROCESS_START pointing here,
+# which measures every helper they run, imported or started as a process, in
+# both repos. It sets JUPITER_DOTFILES and JUPITER_INSTALLER.
+[tool.coverage.run]
+parallel = true
+source = [
+    "${JUPITER_DOTFILES}/.config",
+    "${JUPITER_DOTFILES}/etc",
+    "${JUPITER_DOTFILES}/scripts",
+    "${JUPITER_INSTALLER}/jupiter",
+]
+
+[tool.coverage.report]
+# Each repo has its own floor, in scripts/test.sh: the share of its lines the
+# suites run. Raise them as tests are added.
+skip_empty = true

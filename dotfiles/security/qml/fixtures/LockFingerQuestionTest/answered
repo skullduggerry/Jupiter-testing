@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs only once the question was answered, whatever the answer.
+echo answered >"@FIXTURES@/answered-once"
+exit 1

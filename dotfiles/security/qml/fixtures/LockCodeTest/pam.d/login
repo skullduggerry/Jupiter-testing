@@ -1,0 +1,10 @@
+#%PAM-1.0
+# A stack that asks a second question after the password, as a one-time code
+# would: pam_stress asks it ("STRESS Password: ") and keeps the answer as the
+# token, which the second pam_exec checks against 123456.
+auth     [success=1 default=ignore]  pam_exec.so expose_authtok quiet @FIXTURES@/check-password
+auth     requisite                   pam_deny.so
+auth     required                    pam_stress.so
+auth     [success=1 default=ignore]  pam_exec.so expose_authtok quiet stdout @FIXTURES@/check-code
+auth     requisite                   pam_deny.so
+account  required                    pam_permit.so
