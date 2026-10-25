@@ -230,7 +230,8 @@ class Helper(unittest.TestCase):
             bufsize=0,
         )
         self.addCleanup(reader.wait)
-        self.addCleanup(reader.kill)
+        # SIGTERM, which coverage saves its measurement on; SIGKILL loses it.
+        self.addCleanup(reader.terminate)
         assert reader.stdout is not None
         with open(node, "wb") as pad:
             events = [

@@ -89,7 +89,11 @@ class Recorder(http.server.ThreadingHTTPServer):
     def __init__(self, host: str = "127.0.0.1") -> None:
         super().__init__((host, 0), self.handler())
         self.asked: list[Asked] = []
-        self.thread = threading.Thread(target=self.serve_forever, daemon=True)
+        # shutdown() waits for the loop to look again, by default every
+        # half second: a test with three servers waited that long for each.
+        self.thread = threading.Thread(
+            target=self.serve_forever, args=(0.01,), daemon=True
+        )
 
     def __enter__(self) -> Any:
         self.thread.start()

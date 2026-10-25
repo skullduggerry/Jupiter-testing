@@ -1,5 +1,5 @@
-# The settings of the tools scripts/check.sh and scripts/test.sh run; the
-# repo is no package. The suites need nothing beyond Python's standard
+# The settings of the tools scripts/lint.sh and scripts/test.sh run on this
+# repo; the repo is no package. The suites need nothing beyond Python's standard
 # library and what the two repos under test need themselves.
 
 [tool.ruff]
@@ -25,6 +25,10 @@ warn_return_any = false
 # both repos. It sets JUPITER_DOTFILES and JUPITER_INSTALLER.
 [tool.coverage.run]
 parallel = true
+# A helper that runs until it is stopped (tablet.py pad) still counts.
+sigterm = true
+# sys.monitoring (Python 3.12 and up) costs a fraction of a tracer.
+core = "sysmon"
 source = [
     "${JUPITER_DOTFILES}/.config",
     "${JUPITER_DOTFILES}/etc",

@@ -45,6 +45,13 @@ CALENDAR = QUICKSHELL / "services/nextcloud-calendar.py"
 LOGIN = QUICKSHELL / "services/nextcloud-login.py"
 calendar = load(CALENDAR)
 login = load(LOGIN)
+# Runs a script as __main__ with time.sleep a no-op: the login helper waits
+# POLL_SECONDS before each poll, which the stand-in answers at once
+# (Login.test_polling covers the waiting itself).
+WITHOUT_WAITS = (
+    "import runpy, sys, time; time.sleep = lambda _: None; "
+    "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+)
 
 COLLECTIONS: dict[str, dict[str, Any]] = {
     "tasks/": {
@@ -382,7 +389,14 @@ class Login(unittest.TestCase):
         self, url: str = "", path: str = ""
     ) -> tuple[list[dict[str, Any]], str]:
         result = subprocess.run(
-            [sys.executable, str(LOGIN), "--url", url or self.server.url],
+            [
+                sys.executable,
+                "-c",
+                WITHOUT_WAITS,
+                str(LOGIN),
+                "--url",
+                url or self.server.url,
+            ],
             capture_output=True,
             text=True,
             timeout=60,
