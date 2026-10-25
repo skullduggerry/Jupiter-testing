@@ -1,8 +1,8 @@
 # Agent instructions
 
-The tests of Jupiter-dotfiles (a Hyprland and Quickshell desktop) and
-Jupiter-installer (the Arch installer that sets it up), in a repo of their
-own. Read `.github/PROJECT_STRUCTURE.md` (the map, the harness and the
+The linters and tests of Jupiter-dotfiles (a Hyprland and Quickshell
+desktop) and Jupiter-installer (the Arch installer that sets it up), in a
+repo of their own, with the one command that checks any of the three. Read `.github/PROJECT_STRUCTURE.md` (the map, the harness and the
 pitfalls) before adding a test, and the tested repo's own `.github/` before
 changing anything there: its conventions are this repo's too.
 
@@ -25,7 +25,9 @@ changes them, and never anything outside a temporary folder.
   (`dotfiles/qml/`); and anything about logging in, locking, a secret, a
   user's rights or text from outside under that repo's `security/`.
 - `unittest` only, as the installer has always been tested: no new
-  dependency. A test class sets up a world of stand-ins (`setUp`,
+  dependency. Each test runs in a process of its own, beside the others
+  (`harness/run.py`): it shares nothing with another but the files it was
+  given, and waits on nothing it could check sooner. A test class sets up a world of stand-ins (`setUp`,
   `harness.temporary()`), a test method checks one behaviour and is named
   after it, and a table of cases goes through `subTest`.
 - Run the real code: the helper as the shell starts it, the QML singleton in
@@ -48,11 +50,11 @@ changes them, and never anything outside a temporary folder.
 
 ## Done means
 
-- `scripts/check.sh` passes (`--fix` formats first): formatting, qmllint,
-  ruff, strict mypy, shellcheck, then every suite under coverage, each repo
-  at its floor and every helper run by a test.
-- A fix in a tested repo passes that repo's `scripts/check.sh` too, and for
-  the dotfiles the running shell's log shows no new warning after the
-  reload (the dotfiles' "Validating").
+- `./check.sh check all` passes (`--fix` formats first): each repo's formatting
+  and linters (`scripts/lint.sh`), then every suite under coverage, each
+  tested repo at its floor and every helper run by a test. A change to the
+  tooling has its test in `testing/`.
+- A fix in a tested repo passes that repo's `./check.sh` too, and for the dotfiles the running shell's log shows no new
+  warning after the reload (the dotfiles' "Validating").
 - Your report says what changed, why, how you verified it, and what you
   could not verify.

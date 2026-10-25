@@ -1,6 +1,12 @@
-# Jupiter Testing
+# Jupiter-testing
 
-The tests of [Jupiter-dotfiles](https://codeberg.org/skullduggery/Jupiter-dotfiles) and [Jupiter-installer](https://codeberg.org/skullduggery/Jupiter-installer), in a repo of their own. Clone it next to them:
+The linters and tests of [Jupiter-dotfiles](https://codeberg.org/skullduggery/Jupiter-dotfiles) and [Jupiter-installer](https://codeberg.org/skullduggery/Jupiter-installer), and the one command that runs them for any of the three repos.
+
+Part of Jupiter: [Jupiter-installer](https://codeberg.org/skullduggery/Jupiter-installer) sets up [Jupiter-dotfiles](https://codeberg.org/skullduggery/Jupiter-dotfiles), and this repo checks both, and itself.
+
+## Installing
+
+Clone the three repos next to each other:
 
 ```bash
 git clone https://codeberg.org/skullduggery/Jupiter-dotfiles.git
@@ -8,32 +14,33 @@ git clone https://codeberg.org/skullduggery/Jupiter-installer.git
 git clone https://codeberg.org/skullduggery/Jupiter-testing.git
 ```
 
-or point `JUPITER_DOTFILES` and `JUPITER_INSTALLER` at wherever they are (and the other two repos' `JUPITER_TESTING` at this one). Each repo's `scripts/check.sh` runs its share of the tests from here.
+or point `JUPITER_DOTFILES` and `JUPITER_INSTALLER` at wherever they are. The tools are in Jupiter-installer's `packages/pacman.txt`, which its phase 3 installs; a missing one is named with its package.
 
 ## Usage
 
 ```bash
-scripts/check.sh            # lint this repo, then every suite
-scripts/test.sh             # every suite, under coverage of both repos
-scripts/test.sh dotfiles    # one repo's suites
-scripts/test.sh --security  # the security suites alone
-python3 -m unittest dotfiles.test_shelf                    # one module
-python3 -m harness.qml dotfiles/qml/ColorsTest.qml         # one QML test file
-scripts/install-hooks.sh    # once per clone: pre-commit formats, pre-push checks
+./check.sh                       # the repo you are in: formatting, linters, then its suites
+./check.sh check all             # all three repos
+./check.sh lint dotfiles         # or test: one half, one repo or a clone's path (--fix formats first)
+./check.sh test --security       # the security suites alone (-k Lock: tests by name)
+scripts/install-hooks.sh         # once: check on every commit and push, in all three clones
 ```
 
-The suites need nothing beyond Python's standard library and what the tested repos need themselves; `test.sh` names any package that is missing. The tools are in Jupiter-installer's `packages/pacman.txt`.
+Jupiter-dotfiles and Jupiter-installer have a `check.sh` of their own that takes the same arguments and hands them to this one.
 
-## What runs
+## Suites
 
-Everything runs against stand-ins, in temporary folders: nothing on the machine changes, and nothing reaches the network but loopback.
+Everything runs against stand-ins in temporary folders: nothing on the machine changes, and nothing reaches the network but loopback. Each test runs in a process of its own, as many at once as there are CPUs.
 
 | Suite | What it checks |
 |---|---|
-| `dotfiles/test_*.py` | Every helper script of the dotfiles, as the shell starts it, against stand-in commands in a throwaway home: themes, the apps' glass, autostart, displays, the keymap, the tablet, the shelf, screen recording, wallpapers, desktop entries, the calendar's tasks, the login screen's installer. |
-| `dotfiles/qml/` | The shell's QML logic inside Quickshell, offscreen: colours, the greeter's style and theme, idle times, keybinds, the quick menu, the launcher. |
-| `dotfiles/security/` | The lock screen through stand-in PAM stacks (a wrong password, PAM's messages, a second question, a finger, a crash while locked, the tablet's pad while locked), the login screen against a stand-in greetd, its installer run as root (what it reads as you, and that what runs as root is root's copy), the PAM and greetd configuration, where the Nextcloud app password may go, and text from outside shown as text. |
-| `installer/` | Phase 1 from the first question to the last file against a temporary `/mnt`, phases 2 to 4 in a throwaway home, the drivers, the package lists, fingerprints. |
-| `installer/security/` | Who phase 1 makes a user, with which password and which rights, and what the installer fetches and opens. |
+| `dotfiles/` | Every helper script of the dotfiles against stand-in commands, and the shell's QML logic inside Quickshell |
+| `dotfiles/security/` | The lock and login screens, the Nextcloud app password, text from outside |
+| `installer/` | Every phase against stand-in commands and a temporary `/mnt` or home, and the `check` command |
+| `installer/security/` | Who phase 1 makes a user with which rights, and what the installer fetches and opens |
+| `testing/` | This repo's own tooling: the QML runner, the parallel runner, `lint.sh` and `check.sh` |
 
-How the harness works, and how to write a test: `.github/PROJECT_STRUCTURE.md` and `.github/llm.md`.
+## Documentation
+
+- [Development](https://codeberg.org/skullduggery/Jupiter-dotfiles/wiki/Development) in the wiki shared by the three repos: the checks, the suites, writing a test.
+- `.github/`: the harness, the security model and the conventions (`PROJECT_STRUCTURE.md`, and `llm.md` for coding agents).

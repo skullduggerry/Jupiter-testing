@@ -7,37 +7,58 @@ write tests: `.github/llm.md`.
 
 | Path | What |
 | --- | --- |
-| `harness/` | what the suites share: where the repos are, helpers loaded by path, stand-in commands (`__init__.py`), the QML runner (`qml.py`, with `qml/TestCase.qml` and `qml/shell.qml`), the PAM sandbox (`pam.py`), a stand-in greetd (`greetd.py`), a stand-in Nextcloud (`nextcloud.py`), and reading sources (`source.py`) |
+| `harness/` | what the suites share: where the repos are, helpers loaded by path, stand-in commands (`__init__.py`), the parallel runner (`run.py`), the QML runner (`qml.py`, with `qml/TestCase.qml` and `qml/shell.qml`), the tests every repo's `check.sh` shares (`forwarding.py`), the PAM sandbox (`pam.py`), a stand-in greetd (`greetd.py`), a stand-in Nextcloud (`nextcloud.py`), and reading sources (`source.py`) |
 | `dotfiles/` | Jupiter-dotfiles' tests: `test_<helper>.py` per helper script, `test_qml.py` running `qml/*Test.qml` |
 | `dotfiles/security/` | the lock screen, the login screen, the Nextcloud account, text from outside; QML tests in `qml/`, their fixtures in `qml/fixtures/` |
 | `installer/` | Jupiter-installer's tests: the phases against stand-ins |
 | `installer/security/` | who phase 1 makes a user, with which password and rights; root checks, firewall, sources |
-| `scripts/` | `check.sh` (lint, then the suites), `test.sh` (the suites under coverage), `install-hooks.sh` |
-| `pyproject.toml`, `.editorconfig` | ruff, mypy (strict) and coverage, as the tested repos set theirs |
+| `testing/` | this repo's own tooling, each part made to fail: the QML runner, the parallel runner, `lint.sh`, `check.sh` |
+| `check.sh` | the one command, which every repo's `check.sh` hands over to: each repo's lint, then the suites |
+| `scripts/` | `lint.sh` (one repo's formatting and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, and the dotfiles' lint helpers: `quickshell-types.py` (Quickshell's type information, corrected for qmllint) and `pasted-glyphs.py` |
+| `.githooks/` | pre-commit and pre-push, which `install-hooks.sh` points all three clones at; they check whichever repo they run in |
+| `pyproject.toml`, `.editorconfig` | ruff, mypy (strict) and coverage for this repo; the tested repos keep their own, which `lint.sh` reads there |
 
 Each test module also runs alone: `python3 -m unittest dotfiles.test_shelf`.
 
 ## Running
 
 ```bash
-scripts/check.sh                 # formatting, qmllint, ruff, mypy, shellcheck, then test.sh
-scripts/check.sh --fix           # format and apply the safe lint fixes first
-scripts/test.sh                  # every suite, under coverage, each repo at its floor
-scripts/test.sh dotfiles         # one repo's (its own check.sh runs this)
-scripts/test.sh --security       # the security suites alone
+./check.sh                       # the repo you are in, or all three outside them
+./check.sh check all             # every repo: lint.sh for each, then test.sh for all
+./check.sh lint dotfiles         # formatting and linters only, one repo or a clone's path
+./check.sh test                  # the suites only
+./check.sh --fix                 # format and apply the safe lint fixes first
+./check.sh --staged              # lint the staged files only (the pre-commit hook)
+./check.sh test --security       # the security suites alone, no coverage floor
+./check.sh test -k Restore       # the tests matching a pattern, as unittest's -k
 python3 -m unittest dotfiles.security.test_lock_screen -k Restore
 python3 -m harness.qml dotfiles/security/qml/LockPasswordTest.qml
-scripts/install-hooks.sh         # once per clone: pre-commit formats, pre-push checks
+scripts/install-hooks.sh         # once per clone: hooks for all three repos
 ```
 
-`test.sh` runs every module under coverage of both repos (coverage's `.pth`
-reads `COVERAGE_PROCESS_START`, so a helper started as a process measures
-itself) and notes every bash script a test starts (`BASH_ENV`). It fails on
-a helper of the repo no test runs, and on a repo whose Python lines the
-suites run less of than its floor (`floors` in `test.sh`); the tested repos'
-own tooling (`check.sh`, `install-hooks.sh`, the dotfiles' lint helpers,
-`bootstrap.sh`) is left out. It names any package it is missing, among them
-python-dateutil, which the calendar helper imports.
+Jupiter-dotfiles and Jupiter-installer have a `check.sh` of their own (and
+the installer's `bootstrap.sh check|lint|test` runs its): each finds this
+repo next to it or at `JUPITER_TESTING`, cloning it there if it is missing,
+and hands it its arguments with its own clone as its repo. What they share
+is tested once, in `harness/forwarding.py`.
+
+`lint.sh KIND PATH` runs the tools inside PATH, so each repo is held to its
+own `pyproject.toml`, `.editorconfig` and `.luarc.json`. The slow parts run
+side by side: every formatter over its files, qmllint in as many parts as
+there are CPUs, lua-language-server in the background from the start.
+
+`test.sh` hands every module of the chosen repos to `harness/run.py` at once,
+which runs each test in a process of its own, as many at once as there are
+CPUs, the slowest first by the last run's times
+(`~/.cache/jupiter-testing/durations.json`). A process per test keeps tests
+apart as running a module at a time did: a singleton, a loaded helper or an
+environment change reaches no other test. Every Python process measures
+itself under coverage of both repos (coverage's `.pth` reads
+`COVERAGE_PROCESS_START`; `sigterm` saves a helper the test stops), and every
+bash script a test starts is noted (`BASH_ENV`). It fails on a helper of the
+repo no test runs, and on a repo whose Python lines the suites run less of
+than its floor (`floors` in `test.sh`). It names any package it is missing,
+among them python-dateutil, which the calendar helper imports.
 
 ## The harness
 
@@ -100,7 +121,8 @@ What the security suites hold the code to, and where:
 
 - **Lock screen**: only PAM's success unlocks, from the password or a finger;
   no IPC, shortcut or other file unlocks; the password goes through
-  `/etc/pam.d/login`; a second question waits for its own answer; a shell
+  `/etc/pam.d/login`; while PAM checks it the lock says so and Enter again
+  answers nothing; a second question waits for its own answer; a shell
   restarted while locked locks at once; while locked Hyprland runs no bind
   but the media keys', and the tablet's pad, which goes around Hyprland,
   presses nothing. (`test_lock_screen.py`, `qml/Lock*Test.qml`,
@@ -150,6 +172,13 @@ survive are noted where they are tested (a guard behind another guard).
 ## Pitfalls
 
 Each of these has already cost a test run.
+
+- A wait that passes on an idle machine can fail beside fifteen other tests:
+  wait on the event itself (`tryVerify()` on what the stand-in records), and
+  slow the stand-in down to prove it (`fixtures/LockCheckingTest/`).
+- A helper killed with SIGKILL saves no coverage: stop it with `terminate()`.
+- A server's `shutdown()` waits for its loop to look again (`serve_forever`
+  polls every half second by default; `harness/nextcloud.py` passes 0.01).
 
 - `FileView` in a test reads with `blockAllReads: true` and `reload()`, or
   `text()` answers from before the write (the dotfiles' Quickshell pitfall).
