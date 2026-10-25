@@ -3,8 +3,9 @@ keeps a locked session locked.
 
 The QML tests (qml/Lock*Test.qml, qml/TabletLockTest.qml) run the real
 LockService in Quickshell, the password through a stand-in login stack in a
-PAM sandbox (harness/pam.py): a wrong password, what PAM says, a second
-question, a finger, a shell restarted while locked. What they cannot show,
+PAM sandbox (harness/pam.py): a wrong password, what PAM says, the lock
+while PAM checks, a second question, a finger, a shell restarted while
+locked. What they cannot show,
 the sources do: nothing but PAM's success unlocks, nothing unlocks over IPC
 or a shortcut, the password goes through the system's own stack, and while
 locked Hyprland runs no bind but the media keys'.
