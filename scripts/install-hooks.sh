@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
-# Point git at the tracked hooks in .githooks/ so they sync between machines.
-# Run once per clone; .git/hooks is not version controlled, core.hooksPath is.
+# Point git in every Jupiter clone at the hooks in this repo's .githooks/,
+# which check whichever repo they run in. Run once per clone of this repo;
+# .git/hooks is not version controlled, core.hooksPath is. The other repos
+# are found next to this one, or at JUPITER_DOTFILES and JUPITER_INSTALLER.
 set -euo pipefail
-repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-git -C "$repo" config core.hooksPath .githooks
-chmod +x "$repo"/.githooks/*
-echo "hooks installed: $(git -C "$repo" config core.hooksPath)"
-echo "  pre-commit  formats staged files, then checks"
-echo "  pre-push    full suite, no auto-fix"
+testing=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+chmod +x "$testing"/.githooks/*
+for repo in "$testing" "${JUPITER_DOTFILES:-$testing/../Jupiter-dotfiles}" \
+    "${JUPITER_INSTALLER:-$testing/../Jupiter-installer}"; do
+    if [[ -d $repo/.git ]]; then
+        git -C "$repo" config core.hooksPath "$testing/.githooks"
+        echo "hooks installed in $(realpath "$repo")"
+    else
+        echo "no clone at $repo, skipped"
+    fi
+done
+echo "  pre-commit  formats staged files, then checks that repo"
+echo "  pre-push    checks that repo, no auto-fix"

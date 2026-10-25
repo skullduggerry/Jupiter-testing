@@ -201,6 +201,8 @@ class Sources(unittest.TestCase):
             self.assertTrue(url.startswith("https://"), url)
         bootstrap = (INSTALLER / "bootstrap.sh").read_text()
         self.assertIn("INSTALLER_REPO:-https://", bootstrap)
+        check = (INSTALLER / "check.sh").read_text()
+        self.assertIn("TESTING_REPO:-https://", check)
         # Updated fast-forward only: a rewritten upstream is not merged in.
         self.assertIn("pull --ff-only", bootstrap)
 

@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
-# The full suite, whole tree, no auto-fixing: pushing should not rewrite code.
-exec "$(git rev-parse --show-toplevel)/scripts/check.sh"
+# The repo being pushed, all of it, no auto-fixing: pushing should not
+# rewrite code.
+hooks=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+exec "$hooks/../check.sh" check "$(git rev-parse --show-toplevel)"
