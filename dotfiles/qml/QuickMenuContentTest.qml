@@ -74,4 +74,23 @@ TestCase {
             menu.destroy();
         });
     }
+
+    // The notifications' slot puts them out in a list, with Clear and Do Not
+    // Disturb, rather than only opening the bar's centre.
+    function test_theNotificationsAreAList() {
+        setUp();
+        QuickMenu.setSlot(0, "item:notifications");
+        compare(items.kindOf("item:notifications"), "list");
+        compare(items.describe("item:notifications").detail, "None");
+        NotificationService.doNotDisturb = true;
+        compare(items.describe("item:notifications").detail, "None · Do Not Disturb");
+        NotificationService.doNotDisturb = false;
+        const at = slotPoint(0);
+        menu.move(at.x, at.y);
+        verify(menu.list instanceof QuickMenuNotifications, "its list is out");
+        compare(menu.list.count, 0);
+        verify(!menu.list.pick(0), "an empty list has nothing to use");
+        menu.destroy();
+        QuickMenu.reset();
+    }
 }

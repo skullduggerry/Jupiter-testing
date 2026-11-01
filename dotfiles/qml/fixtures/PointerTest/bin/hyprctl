@@ -1,0 +1,12 @@
+#!/bin/sh
+# Notes what Hyprland is asked to run, and lists a mouse, a touchpad, and a
+# device named to break out of the Lua its name goes into. PATH has nothing
+# else, so only the shell's builtins.
+printf '%s\n' "$*" >>"@FIXTURES@/hyprctl"
+if [ "$1" = devices ]; then
+    printf '%s\n' '{"mice": [' \
+        '{"address": "0x1", "name": "logitech-usb-receiver"},' \
+        '{"address": "0x2", "name": "pixa3854:00-093a:0274-touchpad"},' \
+        '{"address": "0x3", "name": "evil-touchpad\" }) os.execute(\"x"}' \
+        '], "keyboards": []}'
+fi

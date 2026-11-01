@@ -40,4 +40,23 @@ TestCase {
         CalendarService.completing = [];
         CalendarService.tasks = [];
     }
+
+    // The write landed while a fetch was out: that fetch's answer may still
+    // list the task as open, and does not bring it back.
+    function test_aFetchFromBeforeTheWriteHidesIt() {
+        const href = "/remote.php/dav/calendars/a/tasks/1.ics";
+        CalendarService.completing = [];
+        CalendarService.fetchHides = [href];
+        CalendarService.adopt([], [
+            {
+                href: href,
+                summary: "Done",
+                calendar: "Tasks",
+                allDay: false,
+                due: ""
+            }
+        ]);
+        compare(CalendarService.tasks.length, 0);
+        CalendarService.fetchHides = [];
+    }
 }
