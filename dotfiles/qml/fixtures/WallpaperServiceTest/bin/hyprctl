@@ -1,0 +1,4 @@
+#!/bin/sh
+# Notes what hyprpaper is asked to show. PATH has nothing else, so only the
+# shell's builtins.
+printf '%s\n' "$*" >>"@FIXTURES@/hyprctl"
