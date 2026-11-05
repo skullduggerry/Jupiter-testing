@@ -67,6 +67,49 @@ TestCase {
         verify(bright <= Colors.base.glassCeiling && dark >= Colors.base.glassFloor);
     }
 
+    // The quick menu's wheel fades its rows toward the surface only as far
+    // as they still read at AA over it; a theme whose text only just does
+    // gets no fading at all.
+    function test_fadedTextStillReads() {
+        usePalette("#101010", "#e0e0e0", {});
+        compare(Colors.faded("#e0e0e0", 0), Colors.mix("#101010", "#e0e0e0", 1), "unfaded");
+        const far = Colors.faded("#e0e0e0", 1);
+        verify(Colors.contrast(far, "#101010") >= Colors.readableContrast, `${far} reads`);
+        verify(Colors.contrast(far, "#101010") < Colors.contrast("#e0e0e0", "#101010"), "and is fainter");
+        usePalette("#101010", "#707070", {});
+        compare(Colors.fadeFloor, 1, "soft text keeps its colour");
+    }
+
+    // The variant's material (BlurVariants, "Wallpaper"): acrylic's own rim
+    // takes the place of the flat border, with the light on its upper edge;
+    // the tint goes as light as liquid glass wants, over any variant.
+    function test_materialFollowsTheVariant() {
+        usePalette("#101010", "#e0e0e0", {});
+        Theme.setBlur(true);
+        Theme.setBlurVariant("kawase");
+        verify(!Colors.base.clear && !Colors.base.specular);
+        compare(Colors.tintLeast, 0.1);
+        compare(Colors.base.edge, Colors.base.border);
+        compare(Colors.base.highlight, Qt.rgba(0, 0, 0, 0));
+        Theme.setBlurVariant("acrylic");
+        verify(Colors.base.clear && Colors.base.specular);
+        compare(Colors.tintLeast, 0.1, "no floor of its own");
+        verify(Colors.base.edge !== Colors.base.border);
+        verify(Colors.base.highlight.a > 0);
+        Theme.setBlurVariant("prism");
+        verify(Colors.base.clear && !Colors.base.specular, "clear, with a flat border");
+        Theme.setBlur(false);
+        verify(!Colors.base.clear, "Solid has no material");
+        Theme.setBlurVariant("kawase");
+        return wait(300);
+    }
+
+    // Hyprland's colour options take rgba(rrggbbaa).
+    function test_coloursAsHyprlandTakesThem() {
+        compare(Colors.hyprland(Qt.rgba(1, 0, 0, 0.5)), "rgba(ff000080)");
+        compare(Colors.hyprland("#33b1ff"), "rgba(33b1ffff)");
+    }
+
     // The lock and login screens (the Lock Screen tab's Theme): the desktop's
     // theme over a veil of its background, its glass with Blur on; or light
     // on dark over the wallpaper, as the overlay is.

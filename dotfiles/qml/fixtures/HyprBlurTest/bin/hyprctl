@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stands in for Hyprland's hyprctl: notes each call's arguments, a line each.
+printf '%s\n' "$*" >>"$HOME/hyprctl.log"

@@ -5,8 +5,9 @@ import "../shell/style"
 
 // The wheel over a list's slot goes into the list and along its rows, with
 // the pointer left on the slot; moving off the slot gives the pointer the
-// selection back. Nothing of the session is here, so every service the
-// items read complains once.
+// selection back. A list is a wheel of spokes: the pointer picks the spoke
+// it is on, and the wheel over the list turns it under the pointer. Nothing
+// of the session is here, so every service the items read complains once.
 TestCase {
     id: root
 
@@ -20,6 +21,15 @@ TestCase {
     function slotPoint(slot: int): point {
         const angle = (slot * menu.step - 90) * Math.PI / 180;
         return Qt.point(menu.center.x + menu.slotRadius * menu.zoom * Math.cos(angle), menu.center.y + menu.slotRadius * menu.zoom * Math.sin(angle));
+    }
+
+    // Where a visible row of the list is, in the menu's window: `out` along
+    // its spoke from the fan's inner edge.
+    function rowPoint(row: int, out: real): point {
+        const list = menu.list;
+        const angle = list.angleAt(list.pitch * (row + 1.5) - list.offset);
+        const radius = Style.quickMenu.arcInner + out;
+        return Qt.point(menu.center.x + menu.zoom * list.side * radius * Math.cos(angle), menu.center.y + menu.zoom * radius * Math.sin(angle));
     }
 
     function setUp() {
@@ -92,5 +102,35 @@ TestCase {
         verify(!menu.list.pick(0), "an empty list has nothing to use");
         menu.destroy();
         QuickMenu.reset();
+    }
+
+    function test_aListIsAWheel() {
+        setUp();
+        const apps = menu.slots.indexOf("item:apps");
+        Apps.missing = [];
+        const at = slotPoint(apps);
+        menu.move(at.x, at.y);
+        return tryVerify(() => menu.list !== null && menu.list.count > menu.list.shownRows + 2, 3000, "the apps load").then(() => {
+            menu.wheel(-Style.quickMenu.wheelStep);
+            const list = menu.list;
+            for (const row of [0, 2, list.shownRows - 1]) {
+                const point = rowPoint(row, 40);
+                menu.move(point.x, point.y);
+                compare(menu.selectedArea, "panel", `row ${row}'s spoke is on the list`);
+                compare(menu.selectedIndex, row, `and picks it`);
+            }
+            const middle = rowPoint(Math.floor(list.shownRows / 2), 40);
+            menu.move(middle.x, middle.y);
+            verify(Math.abs(middle.y - menu.center.y) < list.pitch * menu.zoom / 2, "the middle row is level with the slot");
+            const before = menu.selectedIndex;
+            menu.wheel(-Style.quickMenu.wheelStep * 2);
+            compare(list.offset, list.pitch * 2, "two notches turn it two rows");
+            compare(menu.selectedIndex, before + 2, "and the pointer picks what came under it");
+            const inside = rowPoint(0, -Style.quickMenu.gap * 4);
+            verify(!list.covers((inside.x - menu.center.x) / menu.zoom, (inside.y - menu.center.y) / menu.zoom), "the ring is not the list");
+            list.show(0);
+            compare(list.offset, 0, "the first row shows from the top");
+            menu.destroy();
+        });
     }
 }
