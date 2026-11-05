@@ -324,11 +324,17 @@ class Module(unittest.TestCase):
 
     def test_every_screen(self) -> None:
         # 3840 x 1280 (the right one is 1920 x 1280 at scale 1.5), so the
-        # tablet's full width and the middle 72 mm of its height.
+        # tablet's full width and the middle 72 mm of its height. Hyprland
+        # takes no 0x0 region for all of it, so the layout's box is given.
         loaded = self.config("load")
         self.assertEqual(
-            (loaded["tablet"]["output"], loaded["tablet"]["region_size"]),
-            ("", [0, 0]),
+            (
+                loaded["tablet"]["output"],
+                loaded["tablet"]["region_position"],
+                loaded["tablet"]["region_size"],
+                loaded["tablet"]["absolute_region_position"],
+            ),
+            ("", [0, 0], [3840, 1280], True),
         )
         self.assertEqual(loaded["tablet"]["active_area_size"], [216, 72])
         self.assertEqual(loaded["tablet"]["active_area_position"], [0, 31.5])
