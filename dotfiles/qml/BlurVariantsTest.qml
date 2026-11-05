@@ -56,6 +56,17 @@ TestCase {
         compare(BlurVariants.effective(undefined)["acrylic.clarity"], 0.35);
     }
 
+    // A value kept from a wider range (acrylic's refraction went up to 48)
+    // reaches Hyprland held to the one offered now.
+    function test_effectiveHoldsKeptValuesToTheirRange() {
+        const values = BlurVariants.effective({
+            "acrylic.refraction": 45,
+            "acrylic.bulb": 1
+        });
+        compare(values["acrylic.refraction"], 12);
+        compare(values["acrylic.bulb"], 4);
+    }
+
     function test_optionsPickedAndReset() {
         Theme.setBlurVariant("prism");
         compare(Theme.blurVariant, "prism");

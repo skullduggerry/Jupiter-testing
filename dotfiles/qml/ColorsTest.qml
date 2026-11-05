@@ -96,6 +96,9 @@ TestCase {
         compare(Colors.tintLeast, 0.1, "no floor of its own");
         verify(Colors.base.edge !== Colors.base.border);
         verify(Colors.base.highlight.a > 0);
+        compare(Colors.base.glassTint, Colors.withAlpha("#e0e0e0", Colors.glassAbsorption), "a lit rim, not a smoked one");
+        usePalette("#fafafa", "#202020", {});
+        compare(Colors.base.glassTint, Colors.withAlpha("#fafafa", Colors.glassAbsorption), "the lighter colour in light themes");
         Theme.setBlurVariant("prism");
         verify(Colors.base.clear && !Colors.base.specular, "clear, with a flat border");
         Theme.setBlur(false);
