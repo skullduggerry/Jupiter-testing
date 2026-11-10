@@ -4,7 +4,8 @@ It installs every udev rule and pacman hook in etc/ and the script the hook
 runs, where the hook looks for it, then runs that script once over the
 desktop entries already there; it puts root's copy of the login screen's
 installer, with greetd's config and the PAM stacks, where the Settings app
-runs it through pkexec; it leaves udev alone outside the real root
+runs it through pkexec; it gives every user unit the login screen has no use
+for the drop-in that keeps it out of the greeter's session; it leaves udev alone outside the real root
 (a stand-in udevadm on PATH would note a call), and running it twice is the
 same as once.
 """
@@ -86,6 +87,28 @@ class InstallSystem(unittest.TestCase):
                     installed.read_bytes(), (DOTFILES / name).read_bytes()
                 )
                 self.assertEqual(oct(installed.stat().st_mode & 0o777), mode)
+
+    def test_keeps_the_sessions_services_out_of_the_login_screen(self) -> None:
+        self.assertEqual(self.install().returncode, 0)
+        source = DOTFILES / "etc/systemd/user/not-greeter.conf"
+        self.assertIn("\n[Unit]\nConditionUser=!greeter\n", source.read_text())
+        units = self.root / "etc/systemd/user"
+        dropins = sorted(units.glob("*.d/10-not-greeter.conf"))
+        self.assertEqual(len(dropins), len(list(units.iterdir())))
+        names = {dropin.parent.name.removesuffix(".d") for dropin in dropins}
+        for unit in (
+            "xdg-desktop-portal.service",
+            "pipewire.socket",
+            "wireplumber.service",
+            "hyprpolkitagent.service",
+        ):
+            self.assertIn(unit, names)
+        # What the greeter itself runs on stays.
+        for unit in ("dbus.socket", "dbus-broker.service", "dconf.service"):
+            self.assertNotIn(unit, names)
+        for dropin in dropins:
+            self.assertEqual(dropin.read_bytes(), source.read_bytes())
+            self.assertEqual(oct(dropin.stat().st_mode & 0o777), "0o644")
 
     def test_twice_is_once(self) -> None:
         self.install()

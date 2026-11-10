@@ -266,6 +266,26 @@ class PhaseOne(Installing):
         )
         entry = (self.mnt / "boot/loader/entries/arch.conf").read_text()
         self.assertIn(f"options root=UUID={UUID} rootflags=subvol=@ rw", entry)
+        self.assertTrue(entry.endswith(" quiet loglevel=3\n"), entry)
+
+    def test_boots_without_waiting(self) -> None:
+        """No menu, and an initramfs that only finds the root."""
+        self.install()
+        hooks = (self.mnt / "etc/mkinitcpio.conf.d/jupiter.conf").read_text()
+        self.assertEqual(hooks, f"HOOKS=({phase1.HOOKS})\n")
+        for hook in ("kms", "fsck", "keymap", "consolefont"):
+            self.assertNotIn(hook, phase1.HOOKS.split())
+        for hook in ("udev", "block", "filesystems", "keyboard"):
+            self.assertIn(hook, phase1.HOOKS.split())
+        loader = self.mnt / "boot/loader/loader.conf"
+        self.assertEqual(loader.read_text(), "timeout 0\n")
+
+    def test_keeps_a_timeout_bootctl_set(self) -> None:
+        loader = self.mnt / "boot/loader/loader.conf"
+        loader.parent.mkdir(parents=True)
+        loader.write_text("default arch.conf\ntimeout 5\n")
+        self.install()
+        self.assertEqual(loader.read_text(), "default arch.conf\ntimeout 5\n")
 
     def test_leaves_itself_in_the_new_home(self) -> None:
         calls = self.install()

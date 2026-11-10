@@ -3,7 +3,8 @@ drivers phase 1 picks, against stand-in hardware.
 
 sudo, pacman, paru, systemctl, ufw and wallust only record how they were
 called, and fail when an argument is $BROKEN, so nothing outside the
-temporary folder changes.
+temporary folder changes. lsblk lists the file systems in $LSBLK: none,
+unless a test names some.
 """
 
 import os
@@ -31,9 +32,13 @@ NO_READER = """#!/bin/sh
 echo "No devices available"
 exit 1
 """
+LSBLK = """#!/bin/sh
+printf '%s\\n' $LSBLK
+"""
 PUSH_URL = "git@example.org:dotfiles.git"
 INSTALL = "sudo pacman -S --needed --noconfirm"
 USER_UNITS = "hyprpolkitagent gcr-ssh-agent.socket"
+MASK = f"sudo systemctl mask {' '.join(phase2.TPM_UNITS)}"
 # Where ufw is installed, phase 3 lets KDE Connect in from the local networks.
 KDECONNECT = [
     f"sudo ufw allow from {network} to any app KDEConnect"
@@ -68,6 +73,7 @@ class Phases(unittest.TestCase):
             executable(self.bin / name, RECORD)
         # Whatever this machine has, the tests' has no fingerprint reader.
         executable(self.bin / "fprintd-list", NO_READER)
+        executable(self.bin / "lsblk", LSBLK)
 
         origin = tmp / "Jupiter-dotfiles"
         for name in ("hypr/hyprland.lua", "kitty/kitty.conf", ".zshrc"):
@@ -119,9 +125,16 @@ class Phases(unittest.TestCase):
                 f"{INSTALL} {core}",
                 f"sudo systemctl enable {services}",
                 f"sudo systemctl --global enable {USER_UNITS}",
+                MASK,
                 *REGDOM,
             ],
         )
+
+    def test_phase2_keeps_the_tpm_units_of_an_encrypted_disk(self) -> None:
+        self.env["LSBLK"] = "vfat crypto_LUKS btrfs"
+        calls = self.jupiter("2")
+        self.assertFalse([call for call in calls if " mask " in call])
+        self.assertIn(f"sudo systemctl --global enable {USER_UNITS}", calls)
 
     def test_phase2_skips_a_broken_package(self) -> None:
         core = packages("core.txt")
@@ -136,6 +149,7 @@ class Phases(unittest.TestCase):
                 "sudo systemctl enable NetworkManager power-profiles-daemon "
                 "reflector.timer",
                 f"sudo systemctl --global enable {USER_UNITS}",
+                MASK,
                 *REGDOM,
             ],
         )
