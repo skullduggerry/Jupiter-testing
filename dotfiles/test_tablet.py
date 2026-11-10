@@ -348,6 +348,14 @@ class Module(unittest.TestCase):
         focused = self.config("use focused")
         self.assertEqual(focused["tablet"]["output"], "current")
         self.assertEqual(
+            (
+                focused["tablet"]["region_size"],
+                focused["tablet"]["absolute_region_position"],
+            ),
+            ([1920, 1080], False),
+            "the whole screen, relative to it",
+        )
+        self.assertEqual(
             focused["tablet"]["active_area_size"], [216, 121.5], "16:9"
         )
         self.assertEqual(
