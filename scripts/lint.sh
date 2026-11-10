@@ -153,8 +153,11 @@ section "formatting (qmlformat, ruff, shfmt, stylua)"
 # Every file through its formatter, as many at once as there are CPUs; then
 # whatever differs is fixed or reported, in order.
 export -f formatted
+# With none to format (a commit of documents alone), printf alone would
+# still print one empty name.
+names() { (($#)) && printf '%s\0' "$@"; }
 # shellcheck disable=SC2016 # expanded by the bash each part runs in
-printf '%s\0' "${qml[@]}" "${python[@]}" "${shell[@]}" "${lua[@]}" |
+names "${qml[@]}" "${python[@]}" "${shell[@]}" "${lua[@]}" |
     xargs -0 -r -P "$jobs" -n 8 bash -c '
         for f; do
             if ! out=$(formatted "$f" 2>/dev/null); then

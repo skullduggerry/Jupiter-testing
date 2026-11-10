@@ -143,6 +143,15 @@ class Lint(unittest.TestCase):
         ).stdout
         self.assertIn("+VALUE = 2", staged, "the fix staged again")
 
+    def test_staged_documents_alone_are_nothing_to_format(self) -> None:
+        """A commit of documents alone was refused: no name to format was
+        taken for one empty name, which does not parse."""
+        (self.repo / "NOTES.md").write_text("# Notes\n")
+        git(self.repo, "add", "NOTES.md")
+        code, output = lint("installer", self.repo, "--staged")
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("does not parse", output)
+
     def test_a_missing_tool_is_named_with_its_package(self) -> None:
         bin_dir = self.repo / "bin"
         # What runs before the check: xargs runs echo.
