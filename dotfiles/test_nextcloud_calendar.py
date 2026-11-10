@@ -391,6 +391,25 @@ class MarkingDone(unittest.TestCase):
                     [(True, False), (True, True)],
                 )
 
+    def test_a_rule_or_date_that_cannot_be_read_is_refused(self) -> None:
+        """At once: dateutil takes an interval of 0 and then looks for the
+        next occurrence for ever, and the shell marks tasks done one at a
+        time."""
+        for label, lines in (
+            (
+                "no interval",
+                ("DUE:20260105T090000Z", "RRULE:FREQ=DAILY;INTERVAL=0"),
+            ),
+            (
+                "no number",
+                ("DUE:20260105T090000Z", "RRULE:FREQ=DAILY;INTERVAL=x"),
+            ),
+            ("no frequency", ("DUE:20260105T090000Z", "RRULE:FREQ=SOMETIMES")),
+            ("no date", ("DUE:sometime", "RRULE:FREQ=DAILY")),
+        ):
+            with self.subTest(label), self.assertRaises(ValueError):
+                helper.mark_completed(ics(todo(*lines)), STAMP)
+
 
 class EndToEnd(unittest.TestCase):
     def setUp(self) -> None:
@@ -531,6 +550,38 @@ class EndToEnd(unittest.TestCase):
         )
         gone = self.run_helper("--complete", self.home + "tasks/99.ics")
         self.assertEqual(gone["status"], "error")
+
+    def test_a_task_that_cannot_be_read_is_answered_not_written(self) -> None:
+        objects = self.collections["tasks/"]["objects"]
+        objects.append(
+            ics(todo("DUE:20260105T090000Z", "RRULE:FREQ=DAILY;INTERVAL=0"))
+        )
+        answer = self.run_helper(
+            "--complete", f"{self.home}tasks/{len(objects) - 1}.ics"
+        )
+        self.assertEqual(answer["status"], "error")
+        self.assertIn("cannot be read", answer["message"])
+        self.assertEqual(self.server.puts, [])
+
+    def test_an_address_that_is_none_is_answered(self) -> None:
+        for url in ("https://[", "https://cloud.example.org:port"):
+            with self.subTest(url=url):
+                result = subprocess.run(
+                    [sys.executable, str(HELPER)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env={
+                        **os.environ,
+                        "NEXTCLOUD_URL": url,
+                        "NEXTCLOUD_USER": USER,
+                        "NEXTCLOUD_APP_PASSWORD": PASSWORD,
+                    },
+                    check=False,
+                )
+                self.assertEqual(
+                    json.loads(result.stdout)["status"], "unconfigured"
+                )
 
     def test_another_clients_change_is_not_written_over(self) -> None:
         real = helper.exchange

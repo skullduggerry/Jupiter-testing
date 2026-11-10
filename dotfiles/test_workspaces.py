@@ -8,7 +8,9 @@ workspaces, handed to set_workspace as Hyprland takes it (a selector, never a
 table of options, which Hyprland 0.57 refuses); one with none of its own
 opens its workspace 1 and gives focus and the pointer back, and with no
 monitor focused before, there is none to give back. The keys' workspace 1
-to 9 are the focused monitor's, and the arrows step through its workspaces,
+to 9 are the focused monitor's (with none focused, as between the last
+monitor unplugged and the next, they do nothing), and the arrows step through
+its workspaces,
 past the last one to a new one; the scratchpad, on DP-2 in every world, is
 none of them.
 """
@@ -115,6 +117,11 @@ elseif world == "keys" then
 	dp.active_workspace = workspace(101, dp, 1)
 	module.focus(3)
 	module.moveWindow(4)
+elseif world == "keys with no monitor focused" then
+	active = nil
+	module.focus(3)
+	module.moveWindow(4)
+	module.step(1)
 elseif world == "stepping" then
 	active = dp
 	workspace(101, dp, 1)
@@ -197,6 +204,9 @@ class Settling(unittest.TestCase):
                 'dispatch {"move":{"workspace":104}}',
             ],
         )
+
+    def test_the_keys_do_nothing_with_no_monitor_focused(self) -> None:
+        self.assertEqual(self.run_world("keys with no monitor focused"), [])
 
     def test_the_arrows_step_through_the_monitors_workspaces(self) -> None:
         self.assertEqual(

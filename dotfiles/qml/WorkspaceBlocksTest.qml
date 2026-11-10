@@ -16,4 +16,10 @@ TestCase {
     function test_aSpecialWorkspaceHasNoKey() {
         compare(WorkspaceBlocks.key(null), "");
     }
+
+    // The scratchpad's tile says "magic": "special:magic" did not fit it.
+    function test_aSpecialWorkspaceGoesByItsOwnName() {
+        compare(WorkspaceBlocks.specialName("special:magic"), "magic");
+        compare(WorkspaceBlocks.specialName("magic"), "magic");
+    }
 }

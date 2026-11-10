@@ -23,20 +23,14 @@ TestCase {
         ignoreWarning("wl_display|hyprland_global_shortcuts_v1|GlobalShortcut will not work");
         const keycode = bind("", 0, "Quick menu");
         keycode.keycode = 66;
-        Keybinds.load([bind("1", 64, "Go to that workspace"), bind("2", 64, "Go to that workspace"), bind("Q", 65, "Close"), bind("Q", 65, "Close"), bind("3", 64, "Go to that workspace"), keycode, bind("X", 64, ""), bind("Y", 64, "")], []);
+        Keybinds.load([bind("1", 64, "Go to that workspace"), bind("2", 64, "Go to that workspace"), bind("Q", 65, "Close"), bind("Q", 65, "Close"), bind("3", 64, "Go to that workspace"), keycode, bind("X", 64, ""), bind("Y", 64, "")]);
         compare(Keybinds.rows.length, 5);
         compare(Keybinds.rows[0].keys, ["1", "2", "3"]);
         compare(Keybinds.rows[0].modifiers, ["SUPER"]);
         compare(Keybinds.rows[1].keys, ["Q"], "a press and a release bind are one key");
         compare(Keybinds.rows[1].modifiers, ["SUPER", "SHIFT"]);
-        compare(Keybinds.rows[2].keys, ["code:66"]);
+        compare(Keybinds.rows[2].keys, ["code:66"], "a bind on a keycode, as Hyprland 0.57.1's JSON has it: no key, keycode 66");
         compare(Keybinds.rows[3].keys, ["X"], "binds without a description stay apart");
-    }
-
-    function test_keysFromTheTextOutput() {
-        const keycode = bind("", 0, "Quick menu");
-        Keybinds.load([bind("A", 0, "First"), keycode], ["A", "Caps_Lock"]);
-        compare(Keybinds.rows[1].keys, ["Caps_Lock"]);
     }
 
     function test_digitRunsAreRanges() {
@@ -46,7 +40,7 @@ TestCase {
 
     // A pad key's shortcut names the bind it runs.
     function test_describeAShortcut() {
-        Keybinds.load([bind("R", 64, "Open the launcher"), bind("1", 64, "Go to that workspace"), bind("2", 64, "Go to that workspace"), bind("M", 65, "Log out")], []);
+        Keybinds.load([bind("R", 64, "Open the launcher"), bind("1", 64, "Go to that workspace"), bind("2", 64, "Go to that workspace"), bind("M", 65, "Log out")]);
         compare(Keybinds.describe("SUPER + r"), "Open the launcher");
         compare(Keybinds.describe("SUPER + 2"), "Go to that workspace");
         compare(Keybinds.describe("SHIFT + SUPER + m"), "Log out", "modifiers in any order");
@@ -58,7 +52,7 @@ TestCase {
     function test_otherSubmapsLeftOut() {
         const recording = bind("Escape", 0, "Stop recording a pad key's shortcut");
         recording.submap = "tablet-record";
-        Keybinds.load([bind("A", 64, "First"), recording], []);
+        Keybinds.load([bind("A", 64, "First"), recording]);
         compare(Keybinds.rows.length, 1);
     }
 }

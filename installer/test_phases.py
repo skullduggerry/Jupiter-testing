@@ -250,6 +250,42 @@ class Phases(unittest.TestCase):
         backups = list((self.home / ".dotfiles-backup").iterdir())
         self.assertEqual(backups, [backup])
 
+    def test_phase4_backs_up_a_config_folder_outside_the_home(self) -> None:
+        """XDG_CONFIG_HOME elsewhere: what is in the way there is moved
+        under the backup by its whole path, not refused as outside the home."""
+        config = self.home.parent / "elsewhere/config"
+        self.env["XDG_CONFIG_HOME"] = str(config)
+        executable(config / "kitty/kitty.conf", "font_size 11\n")
+
+        self.jupiter("4")
+
+        self.assertEqual(
+            (config / "kitty").readlink(), self.repo / ".config/kitty"
+        )
+        [backup] = (self.home / ".dotfiles-backup").iterdir()
+        kept = backup / config.relative_to(config.anchor) / "kitty/kitty.conf"
+        self.assertEqual(kept.read_text(), "font_size 11\n")
+        self.assertFalse((self.home / ".config").exists())
+
+    def test_phase4_sets_up_a_clone_it_cannot_update(self) -> None:
+        """Offline, or with commits the origin lacks: the links, the system
+        files and the login screen do not wait for a pull."""
+        self.jupiter("4")
+        git = ["git", "-C", str(self.repo)]
+        subprocess.run(
+            [*git, "remote", "set-url", "origin", "/gone"], check=True
+        )
+        (self.home / ".config/kitty").unlink()
+
+        calls = self.jupiter("4")
+
+        self.assertIn(f"Could not update {self.repo}", self.output)
+        self.assertEqual(
+            (self.home / ".config/kitty").readlink(),
+            self.repo / ".config/kitty",
+        )
+        self.assertIn(f"sudo {self.repo}/scripts/install-greeter.sh", calls)
+
     def test_a_failing_command_is_named(self) -> None:
         self.env["BROKEN"] = "-Syu"
         failed = subprocess.run(

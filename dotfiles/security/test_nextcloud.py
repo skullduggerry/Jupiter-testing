@@ -97,6 +97,11 @@ class Transport(unittest.TestCase):
         "http://localhost:x@example.org",
         "http://127.0.0.1@example.org/",
         "http://localhost:8080@example.org:8080",
+        # No address at all, which urllib raises over: refused, not raised.
+        "https://[",
+        "https://cloud.example.org:port",
+        "https://",
+        "https:///remote.php/dav",
     )
 
     def test_https_or_loopback(self) -> None:
@@ -543,6 +548,22 @@ class Login(unittest.TestCase):
             self.assertRaisesRegex(login.Failed, "unexpected reply"),
         ):
             login.sign_in(self.server.url)
+
+        # A name or a password that is no text is no login: secret-tool
+        # would be started with it.
+        for reply in (
+            '{"loginName": 1, "appPassword": "x"}',
+            '{"loginName": "a", "appPassword": ["x"]}',
+            '{"loginName": null, "appPassword": null}',
+        ):
+            self.server.canned["/login/v2/poll"] = (200, reply)
+            with (
+                self.subTest(reply=reply),
+                redirect_stdout(io.StringIO()),
+                self.assertRaisesRegex(login.Failed, "unexpected reply"),
+            ):
+                login.sign_in(self.server.url)
+        self.assertEqual(len(stored), 1, "nothing more reached the keyring")
 
     def test_without_a_keyring(self) -> None:
         (self.tmp / "bin/secret-tool").unlink()

@@ -194,3 +194,13 @@ Each of these has already cost a test run.
 - Files chowned to a subordinate uid cannot be removed by the test: the
   namespace that chowned them hands them back before it ends.
 - Under zsh, an unquoted `$VAR` holding a command is one word (`${=VAR}`).
+- qmllint counts a member read off what `createObject()` returns (a
+  `QObject`) as a warning and prints nothing for it, so lint fails with an
+  empty report: cast it (`as GlassHighlight`); `qmllint --json -` shows what
+  it counted.
+- `bootstrap.sh` ends on `</dev/tty`, which a test's process does not have:
+  `installer/test_bootstrap.py` gives each run a terminal of its own
+  (`pty.fork()`).
+- `Hyprland --verify-config` wants an `XDG_RUNTIME_DIR`, and reads the state
+  the config loads (`blur.lua`): `dotfiles/test_blur_options.py` gives it
+  both in a temporary folder.

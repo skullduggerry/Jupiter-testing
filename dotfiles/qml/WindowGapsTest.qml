@@ -26,6 +26,8 @@ TestCase {
         WindowGaps.load("6 6 6 6");
         WindowGaps.load("auto");
         WindowGaps.load("1 2 3 4 5");
+        WindowGaps.load("");
+        WindowGaps.load("  ");
         compare([WindowGaps.top, WindowGaps.right, WindowGaps.bottom, WindowGaps.left], [6, 6, 6, 6]);
     }
 }

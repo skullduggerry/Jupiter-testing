@@ -104,6 +104,18 @@ class Autostart(unittest.TestCase):
             found["shipped-off"]["enabled"], False, "a Hidden system entry"
         )
 
+    def test_an_entry_that_cannot_be_read_costs_only_itself(self) -> None:
+        """An app removed leaves its link in ~/.config/autostart behind."""
+        self.user.mkdir(parents=True)
+        (self.user / "gone.desktop").symlink_to("/nonexistent/gone.desktop")
+        (self.user / "folder.desktop").mkdir()
+        unreadable = self.user / "unreadable.desktop"
+        unreadable.write_text(entry("Unreadable"))
+        unreadable.chmod(0)
+        self.assertEqual(
+            sorted(self.listing()), ["plain", "shipped-off", "with-action"]
+        )
+
     def test_off_and_on_again_leaves_nothing(self) -> None:
         self.run_helper("set", "plain", "off")
         override = self.user / "plain.desktop"
