@@ -1,0 +1,9 @@
+#!/bin/sh
+# A laptop under a big display, lined up at the right, as `hyprctl monitors
+# all -j` lists them. PATH has nothing else, so only the shell's builtins.
+if [ "$1" = monitors ]; then
+    printf '%s\n' '[' \
+        '{"name": "eDP-1", "description": "Laptop Panel", "model": "Panel", "width": 2880, "height": 1920, "refreshRate": 120, "x": 1120, "y": 1440, "scale": 2, "transform": 0, "vrr": false, "disabled": false, "availableModes": ["2880x1920@120.00Hz"]},' \
+        '{"name": "DP-2", "description": "Big Display", "model": "Display", "width": 3840, "height": 2160, "refreshRate": 60, "x": 0, "y": 0, "scale": 1.5, "transform": 0, "vrr": false, "disabled": false, "availableModes": ["3840x2160@60.00Hz"]}' \
+        ']'
+fi
