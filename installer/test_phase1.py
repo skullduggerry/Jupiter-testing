@@ -3,18 +3,20 @@
 PATH holds only a stand-in that records how each command was called (and
 answers the ones phase 1 reads), /mnt is a temporary folder and the answers
 come from a list, so no disk, mount or user is touched: what phase 1 would
-run, on which disk, and what it writes into the new system.
+run, on which disk, and what it writes into the new system, encrypted or
+not.
 """
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from jupiter import phase1
+from jupiter import phase1, secureboot
 from jupiter.common import INSTALLER_DIR
 
 GIB = 2**30
@@ -34,27 +36,90 @@ LSBLK = {
             "type": "disk",
             "mountpoints": [None],
         },
+        # An empty disk too small for the system, offered for data.
+        {
+            "name": "/dev/vdx",
+            "size": 8 * GIB,
+            "model": "Data",
+            "type": "disk",
+            "mountpoints": [None],
+            "fstype": None,
+            "pttype": None,
+        },
+        # Windows' disk on a desktop that dual-boots: never offered for data.
+        {
+            "name": "/dev/vdw",
+            "size": 500 * GIB,
+            "model": "Windows",
+            "type": "disk",
+            "mountpoints": [None],
+            "pttype": "gpt",
+            "children": [
+                {
+                    "name": "/dev/vdw1",
+                    "size": 100 * 2**20,
+                    "type": "part",
+                    "mountpoints": [None],
+                    "fstype": "vfat",
+                },
+                {
+                    "name": "/dev/vdw2",
+                    "size": 499 * GIB,
+                    "type": "part",
+                    "mountpoints": [None],
+                    "fstype": "ntfs",
+                },
+            ],
+        },
+        # The USB stick the ISO booted from.
+        {
+            "name": "/dev/sda",
+            "size": 32 * GIB,
+            "model": "Stick",
+            "type": "disk",
+            "mountpoints": [None],
+            "pttype": "dos",
+            "children": [
+                {
+                    "name": "/dev/sda1",
+                    "size": 2 * GIB,
+                    "type": "part",
+                    "mountpoints": ["/run/archiso/bootmnt"],
+                    "fstype": "iso9660",
+                }
+            ],
+        },
+        {
+            "name": "/dev/sr0",
+            "size": 2 * GIB,
+            "model": "DVD",
+            "type": "rom",
+            "mountpoints": [None],
+        },
     ]
-}
-SFDISK = {
-    "partitiontable": {
-        "partitions": [{"node": "/dev/vdz1"}, {"node": "/dev/vdz2"}]
-    }
 }
 UUID = "0a1b2c3d-1111-2222-3333-444455556666"
 # What each command prints, and what pacstrap leaves that phase 1 writes into.
 STAND_IN = f"""#!{sys.executable}
 import json, os, sys
 name, args = os.path.basename(sys.argv[0]), sys.argv[1:]
-given = name == "sfdisk" and "--json" not in args or "chpasswd" in args
+given = (
+    name == "sfdisk" and "--json" not in args
+    or name == "cryptsetup" and args[0] != "config"
+    or "chpasswd" in args
+)
 data = sys.stdin.read() if given else ""
+disk = args[-1]
+table = {{"partitiontable": {{"partitions": [
+    {{"node": disk + "1"}}, {{"node": disk + "2"}}
+]}}}}
 with open(os.environ["CALLS"], "a") as calls:
     calls.write(json.dumps([name, *args, data]) + "\\n")
 print({{
     "lsblk": {json.dumps(json.dumps(LSBLK))},
     "timedatectl": "UTC\\nEurope/Berlin",
     "localectl": "us\\nde-latin1",
-    "sfdisk": {json.dumps(json.dumps(SFDISK))} if "--json" in args else "",
+    "sfdisk": json.dumps(table) if "--json" in args else "",
     "genfstab": "UUID={UUID} / btrfs rw 0 0",
     "findmnt": "{UUID}",
 }}.get(name, ""), end="")
@@ -66,6 +131,7 @@ if name == "pacstrap":
 """
 COMMANDS = [
     "lsblk",
+    "cryptsetup",
     "timedatectl",
     "localectl",
     "sfdisk",
@@ -119,14 +185,92 @@ class Installing(unittest.TestCase):
         # Nothing but the stand-ins: an unexpected command fails to start.
         environment = {"PATH": str(stand_ins), "CALLS": str(self.calls)}
         self.enterContext(mock.patch.dict(os.environ, environment))
-        self.enterContext(mock.patch("builtins.print"))
+        self.printed = self.enterContext(mock.patch("builtins.print"))
+
+    def calls_made(self) -> list[list[str]]:
+        """Each command run, as [name, *args, stdin]."""
+        return [
+            json.loads(line) for line in self.calls.read_text().splitlines()
+        ]
 
 
-class PhaseOne(Installing):
+PASSPHRASE = "a passphrase: typed\\ as is"
+
+
+class Encrypting(Installing):
+    """Phase 1 told to encrypt, with an empty disk for data at /data."""
+
+    # The disks phase 1 lists after the system disk, in lsblk's order, and
+    # each answer: the empty ones are asked about, the others left alone.
+    DATA_ANSWERS: tuple[str, ...] = (
+        "",  # /dev/vdy: no, the default
+        "y",  # /dev/vdx: for data
+        "/boot/data",  # not a folder of its own
+        "/root",  # the system's
+        "",  # /data, the default
+        "y",  # erase it
+    )
+
+    def firmware(self, setup: bool, secure_boot: bool = False) -> None:
+        """The firmware's Secure Boot variables: Setup Mode or not."""
+        efivars = self.mnt.parent / "efi/efivars"
+        efivars.mkdir(exist_ok=True)
+        guid = "8be4df61-93ca-11d2-aa0d-00e098032b8c"
+        attributes = b"\x06\x00\x00\x00"
+        for name, value in (("SetupMode", setup), ("SecureBoot", secure_boot)):
+            (efivars / f"{name}-{guid}").write_bytes(
+                attributes + bytes([value])
+            )
+
+    def install(self) -> list[list[str]]:
+        answers = [
+            "/dev/vdz",
+            "",  # encrypted, the default
+            *self.DATA_ANSWERS,
+            "box",
+            USER,
+            "UTC",
+            "en_US.UTF-8",
+            "de-latin1",
+            "y",
+        ]
+        passwords = [
+            PASSPHRASE,
+            PASSPHRASE,
+            "secret-1",
+            "secret-1",
+            "secret-2",
+            "secret-2",
+        ]
+        with (
+            mock.patch("builtins.input", side_effect=answers) as asked,
+            mock.patch("getpass.getpass", side_effect=passwords) as typed,
+        ):
+            phase1.main()
+        self.questions = [call.args[0] for call in asked.call_args_list]
+        self.prompts = [call.args[0] for call in typed.call_args_list]
+        return self.calls_made()
+
+    def luks_uuid(self, calls: list[list[str]], partition: str) -> str:
+        """The UUID phase 1 gave the LUKS volume on a partition."""
+        [uuid] = [
+            arg.removeprefix("--uuid=")
+            for call in calls
+            if call[:2] == ["cryptsetup", "luksFormat"] and partition in call
+            for arg in call
+            if arg.startswith("--uuid=")
+        ]
+        return uuid
+
+
+class Declining(Installing):
+    """Phase 1 told not to encrypt: the questions it always asked."""
+
     def install(self, erase: str = "y") -> list[list[str]]:
         answers = [
             "/dev/nope",  # not offered
             "/dev/vdz",
+            "n",  # not encrypted
             "Bad Host!",  # not a hostname
             "box",
             USER,
@@ -153,6 +297,8 @@ class PhaseOne(Installing):
             json.loads(line) for line in self.calls.read_text().splitlines()
         ]
 
+
+class PhaseOne(Declining):
     def test_installs_on_the_disk_confirmed(self) -> None:
         calls = self.install()
         mnt = str(self.mnt)
@@ -315,6 +461,292 @@ class PhaseOne(Installing):
         ]
         self.assertEqual(calls, ["lsblk", "timedatectl", "localectl"])
         self.assertEqual(list(self.mnt.iterdir()), [])
+
+
+class EncryptedInstall(Encrypting):
+    def test_asks_for_the_passphrase_twice_after_the_disk(self) -> None:
+        self.install()
+        self.assertEqual(
+            self.questions[:2],
+            ["Disk [/dev/vdy]: ", "Encrypt /dev/vdz? [Y/n] "],
+        )
+        self.assertEqual(
+            self.prompts[:2], ["Passphrase for the disk: ", "Repeat it: "]
+        )
+
+    def test_puts_the_system_on_luks2(self) -> None:
+        calls = self.install()
+        mnt = str(self.mnt)
+        luks = self.luks_uuid(calls, "/dev/vdz2")
+        run = [call[:-1] for call in calls]
+        format_ = [
+            "cryptsetup",
+            "luksFormat",
+            "--type=luks2",
+            "--batch-mode",
+            f"--uuid={luks}",
+            "--key-file=-",
+            "/dev/vdz2",
+        ]
+        opened = ["cryptsetup", "open", "--key-file=-", "/dev/vdz2", "root"]
+        for command in (
+            format_,
+            opened,
+            ["mkfs.btrfs", "--force", "/dev/mapper/root"],
+            [
+                "mount",
+                "--mkdir",
+                "-o",
+                "compress=zstd,subvol=@home",
+                "/dev/mapper/root",
+                f"{mnt}/home",
+            ],
+            ["mkfs.fat", "-F", "32", "/dev/vdz1"],
+        ):
+            self.assertIn(command, run)
+        self.assertLess(run.index(format_), run.index(opened))
+        self.assertNotIn(["mkfs.btrfs", "--force", "/dev/vdz2"], run)
+
+    def test_opens_the_root_in_the_initramfs_with_trim(self) -> None:
+        calls = self.install()
+        crypttab = (self.mnt / "etc/crypttab").read_text().splitlines()
+        root = self.luks_uuid(calls, "/dev/vdz2")
+        data = self.luks_uuid(calls, "/dev/vdx1")
+        self.assertEqual(
+            crypttab,
+            [
+                f"root UUID={root} none "
+                "discard,x-initrd.attach,tpm2-measure-pcr=yes",
+                f"data UUID={data} /etc/cryptsetup-keys.d/data.key "
+                "discard,nofail,x-systemd.device-timeout=10s",
+            ],
+        )
+        hooks = (self.mnt / "etc/mkinitcpio.conf.d/jupiter.conf").read_text()
+        self.assertEqual(hooks, f"HOOKS=({phase1.ENCRYPTED_HOOKS})\n")
+        names = phase1.ENCRYPTED_HOOKS.split()
+        for hook in ("systemd", "sd-vconsole", "sd-encrypt", "block"):
+            self.assertIn(hook, names)
+        for hook in ("base", "udev", "encrypt", "keymap", "kms", "fsck"):
+            self.assertNotIn(hook, names)
+        # Every keyboard's driver: the passphrase may be typed on another.
+        self.assertLess(names.index("keyboard"), names.index("autodetect"))
+        self.assertLess(names.index("sd-vconsole"), names.index("sd-encrypt"))
+        # Built again once crypttab is there, after pacstrap built one.
+        run = [call[:-1] for call in calls]
+        rebuild = [
+            "arch-chroot",
+            "-S",
+            str(self.mnt),
+            "mkinitcpio",
+            "--allpresets",
+        ]
+        self.assertIn(rebuild, run)
+        pacstrap = next(
+            i for i, call in enumerate(run) if call[0] == "pacstrap"
+        )
+        self.assertGreater(run.index(rebuild), pacstrap)
+        # Typed in the console keymap chosen.
+        self.assertIn(
+            "KEYMAP=de-latin1\n", (self.mnt / "etc/vconsole.conf").read_text()
+        )
+
+    def test_makes_the_chosen_disk_a_data_disk(self) -> None:
+        calls = self.install()
+        mnt = self.mnt
+        run = [call[:-1] for call in calls]
+        key = mnt / "etc/cryptsetup-keys.d/data.key"
+        data = self.luks_uuid(calls, "/dev/vdx1")
+        layout = next(
+            call[-1]
+            for call in calls
+            if call[0] == "sfdisk"
+            and "/dev/vdx" in call
+            and "--json" not in call
+        )
+        self.assertEqual(layout, f"label: gpt\ntype={phase1.DATA_TYPE}\n")
+        [btrfs] = [
+            call
+            for call in run
+            if call[0] == "mkfs.btrfs" and "/dev/mapper/data" in call
+        ]
+        filesystem = btrfs[2].removeprefix("--uuid=")
+        for command in (
+            [
+                "sfdisk",
+                "--wipe",
+                "always",
+                "--wipe-partitions",
+                "always",
+                "/dev/vdx",
+            ],
+            ["cryptsetup", "open", "--key-file=-", "/dev/vdx1", "data"],
+            [
+                "cryptsetup",
+                "luksAddKey",
+                "--batch-mode",
+                "--pbkdf=pbkdf2",
+                "--pbkdf-force-iterations=1000",
+                "--new-key-slot=1",
+                "--key-file=-",
+                "/dev/vdx1",
+                str(key),
+            ],
+            # The key file's slot tried first, before the passphrase's.
+            [
+                "cryptsetup",
+                "config",
+                "--key-slot=1",
+                "--priority=prefer",
+                "/dev/vdx1",
+            ],
+            [
+                "mkfs.btrfs",
+                "--force",
+                f"--uuid={filesystem}",
+                "/dev/mapper/data",
+            ],
+            [
+                "mount",
+                "--mkdir",
+                "-o",
+                "compress=zstd",
+                "/dev/mapper/data",
+                f"{mnt}/data",
+            ],
+            ["arch-chroot", "-S", str(mnt), "chown", f"{USER}:", "/data"],
+        ):
+            self.assertIn(command, run)
+        self.assertTrue(data)
+        fstab = (mnt / "etc/fstab").read_text()
+        self.assertTrue(
+            fstab.endswith(
+                f"UUID={filesystem} /data btrfs "
+                "compress=zstd,nofail,x-systemd.device-timeout=10s 0 0\n"
+            ),
+            fstab,
+        )
+        self.assertEqual(len(key.read_bytes()), 64)
+
+    def test_lists_the_disks_it_leaves_alone(self) -> None:
+        self.install()
+        printed = [
+            str(call.args[0])
+            for call in self.printed.call_args_list
+            if call.args
+        ]
+        self.assertIn(
+            "  /dev/vdw  500 GiB  Windows: left alone (gpt, vfat, ntfs)",
+            printed,
+        )
+        self.assertIn(
+            "  /dev/sda  32 GiB  Stick: left alone (in use)", printed
+        )
+        asked = [
+            q for q in self.questions if q.startswith("Erase and encrypt")
+        ]
+        self.assertEqual(
+            asked,
+            [
+                "Erase and encrypt /dev/vdy  32 GiB  Other for data? [y/N] ",
+                "Erase and encrypt /dev/vdx  8 GiB  Data for data? [y/N] ",
+            ],
+        )
+        self.assertIn("Erase everything on /dev/vdx? [y/N] ", self.questions)
+        self.assertIn("Mount it at [/data]: ", self.questions)
+
+    def test_a_data_disk_needs_its_own_yes(self) -> None:
+        self.DATA_ANSWERS = ("", "y", "", "n")  # no to erasing /dev/vdx
+        calls = self.install()
+        self.assertNotIn("/dev/vdx", json.dumps(calls))
+        self.assertEqual(
+            (self.mnt / "etc/crypttab").read_text().count("\n"), 1
+        )
+        self.assertFalse((self.mnt / "etc/cryptsetup-keys.d").exists())
+
+
+class SignedBoot(Encrypting):
+    """Encrypted: a unified kernel image, signed with keys of the system's
+    own, enrolled when the firmware is in Setup Mode."""
+
+    def chroot(self, calls: list[list[str]]) -> list[list[str]]:
+        prefix = ["arch-chroot", "-S", str(self.mnt)]
+        return [call[3:-1] for call in calls if call[:3] == prefix]
+
+    def test_builds_a_unified_kernel_image_only(self) -> None:
+        calls = self.install()
+        root = "0a1b2c3d-1111-2222-3333-444455556666"  # findmnt's
+        self.assertEqual(
+            (self.mnt / "etc/kernel/cmdline").read_text(),
+            f"root=UUID={root} rootflags=subvol=@ rw zswap.enabled=0"
+            " quiet loglevel=3\n",
+        )
+        preset = (self.mnt / "etc/mkinitcpio.d/linux.preset").read_text()
+        self.assertIn("PRESETS=('default')\n", preset)
+        self.assertIn('default_uki="/boot/EFI/Linux/arch-linux.efi"\n', preset)
+        self.assertNotIn("_image=", preset)
+        self.assertNotIn("fallback", preset.replace("# ", ""))
+        self.assertFalse((self.mnt / "boot/loader/entries/arch.conf").exists())
+        self.assertEqual(
+            (self.mnt / "boot/loader/loader.conf").read_text(), "timeout 0\n"
+        )
+        pacstrap = next(call for call in calls if call[0] == "pacstrap")
+        self.assertTrue({"sbctl", "tpm2-tss"} <= set(pacstrap))
+        # Written before pacstrap builds the first image.
+        self.assertTrue(
+            (self.mnt / "etc/kernel/cmdline").stat().st_mtime
+            <= (self.mnt / "etc/fstab").stat().st_mtime
+        )
+
+    def test_signs_systemd_boot_and_the_image(self) -> None:
+        self.firmware(setup=True)
+        chroot = self.chroot(self.install())
+        boot = "/usr/lib/systemd/boot/efi/systemd-bootx64.efi"
+        order = [
+            ["sbctl", "create-keys"],
+            ["sbctl", "enroll-keys", "--microsoft"],
+            ["sbctl", "sign", "--save", "--output", f"{boot}.signed", boot],
+            ["bootctl", "install"],
+            ["mkinitcpio", "--allpresets"],
+            ["systemctl", "enable", "systemd-boot-update.service"],
+        ]
+        indexes = [chroot.index(command) for command in order]
+        self.assertEqual(indexes, sorted(indexes), chroot)
+
+    def test_enrols_keys_only_in_setup_mode(self) -> None:
+        for setup, secure_boot in ((False, True), (False, False)):
+            with self.subTest(setup=setup, secure_boot=secure_boot):
+                self.calls.write_text("")
+                for path in self.mnt.iterdir():
+                    shutil.rmtree(path)
+                self.firmware(setup, secure_boot)
+                chroot = self.chroot(self.install())
+                self.assertIn(["sbctl", "create-keys"], chroot)
+                self.assertFalse(
+                    [call for call in chroot if "enroll-keys" in call]
+                )
+                printed = [
+                    call.args[0]
+                    for call in self.printed.call_args_list
+                    if call.args
+                ]
+                self.assertIn(secureboot.SETUP_MODE_HELP, printed)
+
+    def test_says_when_the_firmware_has_no_secure_boot(self) -> None:
+        self.install()
+        printed = [c.args[0] for c in self.printed.call_args_list if c.args]
+        self.assertEqual(printed[0], secureboot.NO_SECURE_BOOT_HELP)
+
+    def test_goes_on_when_the_keys_cannot_be_enrolled(self) -> None:
+        self.firmware(setup=True)
+        self.calls.write_text("")
+        stand_in = Path(os.environ["PATH"]) / "arch-chroot"
+        stand_in.write_text(
+            stand_in.read_text() + "if 'enroll-keys' in args: sys.exit(1)\n"
+        )
+        chroot = self.chroot(self.install())
+        self.assertIn(["mkinitcpio", "--allpresets"], chroot)
+        warnings = [c.args[0] for c in self.printed.call_args_list if c.args]
+        self.assertIn("phase 4 says what is left", "".join(map(str, warnings)))
 
 
 if __name__ == "__main__":

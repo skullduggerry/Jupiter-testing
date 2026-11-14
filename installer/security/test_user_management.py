@@ -85,7 +85,16 @@ class Passwords(Installing):
     )
 
     def install(self) -> list[list[str]]:
-        answers = ["/dev/vdz", "box", "jane", "UTC", "en_US.UTF-8", "us", "y"]
+        answers = [
+            "/dev/vdz",
+            "n",
+            "box",
+            "jane",
+            "UTC",
+            "en_US.UTF-8",
+            "us",
+            "y",
+        ]
         with (
             mock.patch("builtins.input", side_effect=answers),
             mock.patch("getpass.getpass", side_effect=list(self.PASSWORDS)),

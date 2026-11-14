@@ -1,8 +1,9 @@
 """Phase 4's fingerprint: where fprintd finds a reader, a finger is enrolled
-(if none is) and sudo's PAM stack takes one first, keeping the old file.
+(if none is) and sudo's and polkit's PAM stacks take one first, keeping the
+old file; polkit's from its package's (/usr/lib/pam.d) where /etc has none.
 
 fprintd-list, fprintd-enroll and sudo are stand-ins on a PATH of their own,
-and sudo's PAM file is a temporary one, so nothing on this machine changes.
+and the PAM files are temporary ones, so nothing on this machine changes.
 """
 
 import json
@@ -20,6 +21,11 @@ SUDO = (
     "#%PAM-1.0\n"
     "auth\t\tinclude\t\tsystem-auth\n"
     "account\t\tinclude\t\tsystem-auth\n"
+)
+POLKIT = (
+    "#%PAM-1.0\n\n"
+    "auth       include      system-auth\n"
+    "account    include      system-auth\n"
 )
 DEVICE = (
     "found 1 devices\n"
@@ -44,7 +50,8 @@ if name == "fprintd-list":
 if name == "fprintd-enroll":
     sys.exit(int(os.environ["ENROLLED"]))
 if name == "sudo" and args[0] == "install":
-    shutil.copy(args[-1], args[-1] + "~")
+    if os.path.exists(args[-1]):
+        shutil.copy(args[-1], args[-1] + "~")
     shutil.copy(args[-2], args[-1])
 """
 
@@ -68,7 +75,15 @@ class Fingerprint(unittest.TestCase):
             "STATUS": "0",
             "ENROLLED": "0",
         }
-        self.enterContext(mock.patch.object(phase4, "SUDO_PAM", self.pam))
+        self.polkit = tmp / "etc-polkit-1"
+        self.vendor = tmp / "usr-polkit-1"
+        self.vendor.write_text(POLKIT)
+        for name, value in {
+            "SUDO_PAM": self.pam,
+            "POLKIT_PAM": self.polkit,
+            "POLKIT_VENDOR_PAM": self.vendor,
+        }.items():
+            self.enterContext(mock.patch.object(phase4, name, value))
         self.enterContext(mock.patch("builtins.print"))
 
     def set_up(self, listing: str, answer: str = "") -> list[list[str]]:
@@ -95,6 +110,28 @@ class Fingerprint(unittest.TestCase):
         )
         self.assertEqual(Path(f"{self.pam}~").read_text(), SUDO)
 
+    def test_polkit_takes_a_finger_from_its_packages_stack(self) -> None:
+        calls = self.set_up(A_FINGER)
+        self.assertEqual(calls[-1][-1], str(self.polkit))
+        self.assertEqual(
+            self.polkit.read_text(),
+            "#%PAM-1.0\n" + phase4.FINGERPRINT + POLKIT.split("\n", 1)[1],
+        )
+        self.assertEqual(
+            self.vendor.read_text(), POLKIT, "the package's stays"
+        )
+        self.assertFalse(Path(f"{self.polkit}~").exists())
+
+    def test_polkit_keeps_a_stack_of_its_own(self) -> None:
+        own = "#%PAM-1.0\nauth required pam_unix.so\n"
+        self.polkit.write_text(own)
+        self.set_up(A_FINGER)
+        self.assertEqual(
+            self.polkit.read_text(),
+            "#%PAM-1.0\n" + phase4.FINGERPRINT + "auth required pam_unix.so\n",
+        )
+        self.assertEqual(Path(f"{self.polkit}~").read_text(), own)
+
     def test_again_changes_nothing(self) -> None:
         self.set_up(NO_FINGER)
         calls = self.set_up(A_FINGER)
@@ -107,6 +144,7 @@ class Fingerprint(unittest.TestCase):
         calls = self.set_up("No devices available\n")
         self.assertEqual(calls, [["fprintd-list", self.user]])
         self.assertEqual(self.pam.read_text(), SUDO)
+        self.assertFalse(self.polkit.exists())
 
     def test_enrolling_can_wait(self) -> None:
         calls = self.set_up(NO_FINGER, answer="n")

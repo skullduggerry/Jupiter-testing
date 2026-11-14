@@ -74,6 +74,9 @@ class Phases(unittest.TestCase):
         # Whatever this machine has, the tests' has no fingerprint reader.
         executable(self.bin / "fprintd-list", NO_READER)
         executable(self.bin / "lsblk", LSBLK)
+        # Whatever this machine's root is, the tests' is not encrypted: the
+        # TPM step (installer's test_tpm) leaves it alone.
+        executable(self.bin / "findmnt", "#!/bin/sh\necho '/dev/vda2[/@]'\n")
 
         origin = tmp / "Jupiter-dotfiles"
         for name in ("hypr/hyprland.lua", "kitty/kitty.conf", ".zshrc"):
