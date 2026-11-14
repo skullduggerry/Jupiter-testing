@@ -23,6 +23,7 @@ from __future__ import annotations
 import codecs
 import contextlib
 import email.utils
+import fcntl
 import hashlib
 import http.server
 import io
@@ -110,6 +111,7 @@ class Machine:
     _swtpm: subprocess.Popen[bytes] | None = None
     _serial: socket.socket | None = None
     _sockets: Path | None = None
+    _locked: io.TextIOWrapper | None = None
     _log: io.BufferedWriter | None = None
     _pending: bytes = b""
     _text: str = ""
@@ -150,7 +152,7 @@ class Machine:
             copy_function=_reflink,
             # The install's own log (phases.log) comes along.
             ignore=shutil.ignore_patterns(
-                "*.sock", "serial-*.log", "qemu.log", "swtpm.log"
+                "*.sock", "serial-*.log", "qemu.log", "swtpm.log", "lock"
             ),
         )
         disks = [
@@ -171,6 +173,7 @@ class Machine:
     def boot(self, live: bool = False, append: str = "") -> None:
         """Power on, from the ISO's kernel on the serial console if live,
         otherwise from the disks, as the firmware's boot entries say."""
+        self._lock()
         self.boots += 1
         socket_path = self.sockets() / "serial.sock"
         socket_path.unlink(missing_ok=True)
@@ -237,7 +240,7 @@ class Machine:
             command += self._start_swtpm()
         with (self.folder / "qemu.log").open("ab") as log:
             self._qemu = subprocess.Popen(
-                command,
+                [*WITH_PARENT, *command],
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
@@ -260,6 +263,27 @@ class Machine:
         self._text = ""
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._log = open(self.folder / f"serial-{self.boots}.log", "wb")  # noqa: SIM115
+
+    def _lock(self) -> None:
+        """The machine's folder for this process alone, while it lives: a
+        second run on the same disks refuses, naming who holds them."""
+        if self._locked is not None:
+            return
+        lock = (self.folder / "lock").open("a+")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock.seek(0)
+            holder = lock.read().strip()
+            lock.close()
+            raise RuntimeError(
+                f"{self.folder} is in use by process {holder}: stop it first"
+            ) from None
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(os.getpid()))
+        lock.flush()
+        self._locked = lock
 
     def sockets(self) -> Path:
         """A short folder for the machine's sockets: a Unix socket's path
@@ -284,6 +308,7 @@ class Machine:
         log = (self.folder / "swtpm.log").open("ab")
         self._swtpm = subprocess.Popen(
             [
+                *WITH_PARENT,
                 "swtpm",
                 "socket",
                 "--tpm2",
@@ -555,6 +580,11 @@ def digest(path: Path) -> str:
         while block := file.read(2**20):
             sha.update(block)
     return sha.hexdigest()
+
+
+# Before QEMU's and swtpm's command: they die with the process that started
+# them, however it ends, so no VM outlives its run.
+WITH_PARENT = ["setpriv", "--pdeathsig", "KILL", "--"]
 
 
 def _reflink(source: str, target: str) -> None:

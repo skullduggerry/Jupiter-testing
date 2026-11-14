@@ -9,6 +9,8 @@ import http.server
 import io
 import os
 import socket
+import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -59,6 +61,36 @@ class Console(unittest.TestCase):
         clone = self.machine.clone(self.machine.folder.parent / "clone")
         self.assertFalse(clone.secure_boot_firmware)
         self.assertTrue(clone.screen)
+
+    def test_a_second_run_on_the_same_disks_refuses(self) -> None:
+        self.machine._lock()
+        other = rig.Machine(self.machine.folder, [rig.Disk("system", 1)])
+        with self.assertRaisesRegex(
+            RuntimeError, f"in use by process {os.getpid()}"
+        ):
+            other._lock()
+
+    def test_a_vm_dies_with_the_run_that_started_it(self) -> None:
+        # A driver that starts a stand-in VM the rig's way, then is killed.
+        driver = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import subprocess, sys, time; "
+                f"p = subprocess.Popen({rig.WITH_PARENT!r} + ['sleep', '60']); "
+                "print(p.pid, flush=True); time.sleep(60)",
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        assert driver.stdout
+        vm = int(driver.stdout.readline())
+        driver.kill()
+        driver.wait()
+        deadline = time.monotonic() + 5
+        while Path(f"/proc/{vm}").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(Path(f"/proc/{vm}").exists(), "the VM outlived it")
 
     def test_a_silent_console_fails_long_before_the_timeout(self) -> None:
         self.machine.silence = 0.3
