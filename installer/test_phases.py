@@ -38,6 +38,8 @@ printf '%s\\n' $LSBLK
 PUSH_URL = "git@example.org:dotfiles.git"
 INSTALL = "sudo pacman -S --needed --noconfirm"
 USER_UNITS = "hyprpolkitagent gcr-ssh-agent.socket"
+# The folders a new home gets, written by sh -c from stdin.
+USER_DIRS = "sudo sh -c cat > /etc/xdg/user-dirs.defaults"
 MASK = f"sudo systemctl mask {' '.join(phase2.TPM_UNITS)}"
 # Where ufw is installed, phase 3 lets KDE Connect in from the local networks.
 KDECONNECT = [
@@ -139,6 +141,7 @@ class Phases(unittest.TestCase):
                 f"{INSTALL} {core}",
                 f"sudo systemctl enable {services}",
                 f"sudo systemctl --global enable {USER_UNITS}",
+                USER_DIRS,
                 MASK,
                 *REGDOM,
             ],
@@ -163,12 +166,45 @@ class Phases(unittest.TestCase):
                 "sudo systemctl enable NetworkManager power-profiles-daemon "
                 "reflector.timer",
                 f"sudo systemctl --global enable {USER_UNITS}",
+                USER_DIRS,
                 MASK,
                 *REGDOM,
             ],
         )
         self.assertIn("Failed to install, skipping: bluez", self.output)
         self.assertIn("Failed to install and skipped: bluez", self.output)
+
+    @unittest.skipUnless(
+        shutil.which("xdg-user-dirs-update"), "needs xdg-user-dirs"
+    )
+    def test_phase2_gives_a_new_home_downloads_and_screenshots(self) -> None:
+        defaults = self.home.parent / "xdg/user-dirs.defaults"
+        defaults.parent.mkdir(parents=True)
+        defaults.write_text(phase2.USER_DIRS_DEFAULTS)
+        home = self.home.parent / "new-home"
+        home.mkdir()
+        env = {
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_CONFIG_DIRS": str(defaults.parent),
+            "PATH": os.environ["PATH"],
+        }
+        subprocess.run(["xdg-user-dirs-update"], env=env, check=True)
+        self.assertEqual(
+            sorted(
+                p.name for p in home.iterdir() if not p.name.startswith(".")
+            ),
+            ["Downloads", "Screenshots"],
+        )
+        pictures = subprocess.run(
+            ["xdg-user-dir", "PICTURES"],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        # hyprshot saves to the pictures folder.
+        self.assertEqual(pictures, str(home / "Screenshots"))
 
     def test_phase3_installs_both_lists(self) -> None:
         aur = packages("aur.txt")
