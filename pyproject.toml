@@ -13,7 +13,7 @@ ignore = ["E501"]
 allowed-confusables = ["´", "¸", "˛"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["harness", "dotfiles", "installer"]
+known-first-party = ["harness", "dotfiles", "installer", "vm"]
 
 [tool.mypy]
 strict = true
