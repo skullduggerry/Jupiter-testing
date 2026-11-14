@@ -69,6 +69,9 @@ class Console(unittest.TestCase):
             RuntimeError, f"in use by process {os.getpid()}"
         ):
             other._lock()
+        self.machine.kill()
+        other._lock()  # free once the first is done with them
+        other.kill()
 
     def test_a_vm_dies_with_the_run_that_started_it(self) -> None:
         # A driver that starts a stand-in VM the rig's way, then is killed.
@@ -85,12 +88,27 @@ class Console(unittest.TestCase):
         )
         assert driver.stdout
         vm = int(driver.stdout.readline())
+        # Once it runs the VM's own command, setpriv has set the signal.
+        started = time.monotonic() + 5
+        while time.monotonic() < started:
+            if Path(f"/proc/{vm}/cmdline").read_bytes().startswith(b"sleep"):
+                break
+            time.sleep(0.02)
         driver.kill()
         driver.wait()
+
+        def alive() -> bool:
+            # A zombie waiting for its new parent to reap it is dead.
+            try:
+                stat = Path(f"/proc/{vm}/stat").read_text()
+            except OSError:
+                return False
+            return stat.rsplit(")", 1)[1].split()[0] != "Z"
+
         deadline = time.monotonic() + 5
-        while Path(f"/proc/{vm}").exists() and time.monotonic() < deadline:
+        while alive() and time.monotonic() < deadline:
             time.sleep(0.05)
-        self.assertFalse(Path(f"/proc/{vm}").exists(), "the VM outlived it")
+        self.assertFalse(alive(), "the VM outlived it")
 
     def test_a_silent_console_fails_long_before_the_timeout(self) -> None:
         self.machine.silence = 0.3

@@ -347,11 +347,14 @@ class Machine:
         self._close()
 
     def kill(self) -> None:
-        """Pull the plug."""
+        """Pull the plug, and let another run have the disks."""
         if self._qemu and self._qemu.poll() is None:
             self._qemu.kill()
             self._qemu.wait()
         self._close()
+        if self._locked is not None:
+            self._locked.close()
+            self._locked = None
 
     def _close(self) -> None:
         if self._sockets is not None:
