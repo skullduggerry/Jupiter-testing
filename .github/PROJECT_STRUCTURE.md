@@ -7,12 +7,13 @@ write tests: `.github/llm.md`.
 
 | Path | What |
 | --- | --- |
-| `harness/` | what the suites share: where the repos are, helpers loaded by path, stand-in commands (`__init__.py`), the parallel runner (`run.py`), the QML runner (`qml.py`, with `qml/TestCase.qml` and `qml/shell.qml`), the tests every repo's `check.sh` shares (`forwarding.py`), the PAM sandbox (`pam.py`), a stand-in greetd (`greetd.py`), a stand-in Nextcloud (`nextcloud.py`), and reading sources (`source.py`) |
+| `harness/` | what the suites share: where the repos are, helpers loaded by path, stand-in commands (`__init__.py`), the parallel runner (`run.py`), the QML runner (`qml.py`, with `qml/TestCase.qml` and `qml/shell.qml`), the tests every repo's `check.sh` shares (`forwarding.py`), the PAM sandbox (`pam.py`) and a PAM conversation to run in it (`converse.py`), a stand-in greetd (`greetd.py`), a stand-in Nextcloud (`nextcloud.py`), and reading sources (`source.py`) |
 | `dotfiles/` | Jupiter-dotfiles' tests: `test_<helper>.py` per helper script, `test_qml.py` running `qml/*Test.qml` |
 | `dotfiles/security/` | the lock screen, the login screen, the Nextcloud account, text from outside; QML tests in `qml/`, their fixtures in `qml/fixtures/` |
 | `installer/` | Jupiter-installer's tests: the phases against stand-ins |
-| `installer/security/` | who phase 1 makes a user, with which password and rights; root checks, firewall, sources |
-| `testing/` | this repo's own tooling, each part made to fail: the QML runner, the parallel runner, `lint.sh`, `check.sh` |
+| `installer/security/` | who phase 1 makes a user, with which password and rights; root checks, firewall, sources; the disk passphrase, data disks and disks not chosen; the TPM binding; the login keyring; the sudo and polkit stacks with a finger |
+| `testing/` | this repo's own tooling, each part made to fail: the QML runner, the parallel runner, `lint.sh`, `check.sh`, the VM rig |
+| `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`): the rig (`rig.py`), installing with phases 1 and 2 (`install.py`) and the scenarios (`test_install.py`) |
 | `check.sh` | the one command, which every repo's `check.sh` hands over to: each repo's lint, then the suites |
 | `scripts/` | `lint.sh` (one repo's formatting and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, and the dotfiles' lint helpers: `quickshell-types.py` (Quickshell's type information, corrected for qmllint) and `pasted-glyphs.py` |
 | `.githooks/` | pre-commit and pre-push, which `install-hooks.sh` points all three clones at; they check whichever repo they run in |
@@ -41,6 +42,9 @@ the installer's `bootstrap.sh check|lint|test` runs its): each finds this
 repo next to it or at `JUPITER_TESTING`, cloning it there if it is missing,
 and hands it its arguments with its own clone as its repo. What they share
 is tested once, in `harness/forwarding.py`.
+
+`scripts/vm.sh [-k PATTERN]` installs Jupiter in a VM and runs the
+scenarios of `vm/test_install.py` (see "The VM").
 
 `lint.sh KIND PATH` runs the tools inside PATH, so each repo is held to its
 own `pyproject.toml`, `.editorconfig` and `.luarc.json`. The slow parts run
@@ -92,6 +96,14 @@ over `/etc/pam.d` and maps itself back to its own uid, so the real
 (cwrap.org), with util-linux alone. Where user namespaces are off, those
 files are skipped, and the skip names why.
 
+A stack can also be run as greetd's worker runs it, without Quickshell:
+`harness/converse.py SERVICE USER` (libpam through ctypes) answers each
+question from a JSON list on stdin and prints what PAM said and returned.
+`dotfiles/security/test_login_screen.Conversations` runs etc/pam.d/greetd
+that way, and `installer/security/test_finger_stacks.py` sudo's and polkit's
+as phase 4 leaves them, pam_fprintd replaced by a stand-in reader (pam_exec)
+or by a module that is not there.
+
 **greetd** (`harness/greetd.py`). The greetd-ipc(7) protocol on a socket in
 `GREETD_SOCK`, scripted by user name, and every request written to
 `GREETD_LOG` for the test to read back. `start_session` is recorded and
@@ -115,6 +127,22 @@ and stand-ins bound over `/etc/greetd` and `/etc/pam.d`: what she cannot
 read must not reach the installed tree, and what runs as root must be
 root's copy, whatever her clone says.
 
+**The VM** (`vm/`). QEMU with KVM, OVMF with Secure Boot on a fresh copy of
+its variables (Setup Mode: no keys), swtpm for a TPM 2.0, and the Arch ISO's
+kernel started directly with the serial console on, which `rig.Machine`
+reads and types on (`expect`, `send`, `login`, `sh`). Disks are sparse raw
+images, so the host compares one byte for byte and `clone()` copies a
+machine at no cost on Btrfs. The VM reaches the host at 10.0.2.2, where
+`rig.Mirror` serves the installer's working tree as a tarball and stands in
+for an Arch mirror: the databases fetched once a day, the packages from the
+host's cache or fetched once into `~/.cache/jupiter-testing/packages`.
+`install.installed()` answers phase 1 on the console and keeps the
+powered-off machine in `~/.cache/jupiter-testing/vm/<name>-<key>`, the key
+being the installer's files and the answers, so a scenario starts from a
+clone of it and only a changed installer installs again. A failing
+scenario's clone stays, with `serial-<n>.log` per boot. Skipped, naming
+what is missing, without qemu, swtpm, KVM, OVMF or the ISO.
+
 ## The security model
 
 What the security suites hold the code to, and where:
@@ -127,8 +155,13 @@ What the security suites hold the code to, and where:
   but the media keys', and the tablet's pad, which goes around Hyprland,
   presses nothing. (`test_lock_screen.py`, `qml/Lock*Test.qml`,
   `qml/TabletLockTest.qml`)
-- **Login screen**: no attempt without a password, a wrong one starts
-  nothing, PAM's words are shown, a question waits for its answer and another
+- **Login screen**: no attempt without a password, except Enter on an empty
+  field where greeter-env.py found a reader, which answers the password's
+  question with nothing; only that empty answer reaches pam_fprintd, whose
+  success alone ends the stack and whose failure ends the login uncounted;
+  a typed password never waits on the reader; without finger-asked the
+  password works, without pam_fprintd an empty answer fails; a wrong one
+  starts nothing, PAM's words are shown, a question waits for its answer and another
   user ends it, only a listed session starts, as its argv; only people with a
   login shell are offered, by name alone; greetd runs the greeter as
   `greeter`, whose compositor runs nothing else; the PAM stacks let no one in
@@ -151,6 +184,27 @@ What the security suites hold the code to, and where:
   sudo rule only root reads; the ESP root's; phases 3 and 4 refuse root; what
   it fetches over https; the firewall opened to local networks only.
   (`installer/security/test_user_management.py`)
+- **Disks** (installer): the disk passphrase as typed, on cryptsetup's stdin
+  alone, never in argv, a file or the output; a disk not chosen (one with a
+  partition table or file system, one in use) never named by a command; a
+  data disk only after its own yes, at a folder of its own, opened by a
+  random key file only root reads, never written over.
+  (`installer/security/test_disks.py`)
+- **TPM** (installer): no enrolment without a TPM 2.0, Secure Boot on with
+  the system's own keys, and this boot started from the signed kernel
+  image; bound to PCR 7 and PCR 15 zero, nothing else; the recovery key
+  passes through the step's own hands never; a header backup the user's
+  alone. (`installer/security/test_tpm_binding.py`; end to end in the VM:
+  `vm/test_install.Tpm`)
+- **Keyring** (installer): on an unencrypted root, no keyring made and none
+  re-keyed; on an encrypted one, a login keyring made 0600 in a 0700 folder;
+  one there never written over or deleted; an encrypted one re-keyed only
+  when asked, from the desktop, through gnome-keyring's own dialog (no
+  password passes through the installer), a copy kept, and left as it was
+  when the dialog is dismissed. (`installer/security/test_keyring.py`)
+- **sudo and polkit** (installer): with phase 4's finger line first, a
+  finger or the password lets you in and nothing else, with or without
+  pam_fprintd. (`installer/security/test_finger_stacks.py`)
 
 ## Mutations
 
@@ -166,12 +220,30 @@ JUPITER_DOTFILES=$mut python3 -m harness.qml dotfiles/security/qml/LockPasswordT
 
 It must fail. Each suite here was written that way: every guard in
 LockService, GreeterService, the Nextcloud helpers, install-greeter.sh,
-greeter-env.py and phase 1 was broken once, and a test failed. The few that
+greeter-env.py, etc/pam.d/greetd, phase 1 and phase 4's tpm.py, keyring.py
+and finger lines was broken once, and a test failed. The installer's the
+same way, through `JUPITER_INSTALLER`. The few that
 survive are noted where they are tested (a guard behind another guard).
 
 ## Pitfalls
 
 Each of these has already cost a test run.
+
+- The VM: the console reader searches only new text (`SEARCH_BACK`); a
+  pattern like `(.*?)marker` over a long output re-searched it all on every
+  read and starved the mirror's thread. pacman's progress bars on a
+  115200-baud console stall its downloads: the phases run through `tee`.
+  The ISO's reflector rewrites the mirror list after boot (masked). Without
+  the console's type and size on the kernel command line, systemd waits on
+  terminal queries a second or two per boot. cryptsetup flushes what is typed
+  before it turns echo off (`answer_secret` waits). Once the keys are
+  enrolled the unsigned ISO boots only with Secure Boot off. A Unix socket's
+  path must stay under 108 bytes (`sockets()`).
+- The VM's boot times: the initramfs's 1.2 s are 0.15 s of TPM measurement
+  before the unlock, 0.43 s of unseal and activation, and a 0.34 s pause of
+  systemd's own mount-table watcher (a built-in rate limit). Initramfs size,
+  compression, preloaded modules and masking measurement units gained
+  nothing measurable.
 
 - A wait that passes on an idle machine can fail beside fifteen other tests:
   wait on the event itself (`tryVerify()` on what the stand-in records), and
