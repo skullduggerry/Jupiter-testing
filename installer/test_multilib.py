@@ -1,6 +1,8 @@
 """Phase 3's [multilib]: enabled in pacman.conf where a listed package is in
 no enabled repository and the file has it commented out, as Arch ships it;
-left alone otherwise.
+left alone otherwise. And the 32-bit drivers of the installed graphics
+drivers, for a package from [multilib], rather than the first provider
+pacman's --noconfirm takes (NVIDIA's).
 
 pacman (-Slq lists $KNOWN) and sudo (runs `install` for real on the
 temporary pacman.conf, records the rest) are stand-ins on a PATH of their
@@ -34,6 +36,12 @@ with open(os.environ["CALLS"], "a") as calls:
     calls.write(json.dumps([name, *args]) + "\\n")
 if name == "pacman" and args == ["-Slq"]:
     print("\\n".join(os.environ["KNOWN"].split()))
+if name == "pacman" and args == ["-Slq", "multilib"]:
+    if not os.environ.get("MULTILIB"):
+        sys.exit(1)  # error: repository "multilib" was not found
+    print("\\n".join(os.environ["MULTILIB"].split()))
+if name == "pacman" and args == ["-Qq"]:
+    print("\\n".join(os.environ["INSTALLED"].split()))
 if name == "sudo" and args[0] == "install":
     if os.path.exists(args[-1]):
         shutil.copy(args[-1], args[-1] + "~")
@@ -41,7 +49,7 @@ if name == "sudo" and args[0] == "install":
 """
 
 
-class Multilib(unittest.TestCase):
+class Pacman(unittest.TestCase):
     def setUp(self) -> None:
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.conf = tmp / "pacman.conf"
@@ -66,6 +74,8 @@ class Multilib(unittest.TestCase):
             json.loads(line) for line in self.calls.read_text().splitlines()
         ]
 
+
+class Multilib(Pacman):
     def test_enabled_for_a_package_only_it_has(self) -> None:
         calls = self.run_step(["mpv", "steam"])
         self.assertIn(
@@ -100,6 +110,30 @@ class Multilib(unittest.TestCase):
                 calls = self.run_step(["steam"])
                 self.assertEqual(self.conf.read_text(), text)
                 self.assertEqual(calls, [["pacman", "-Slq"]])
+
+
+class Lib32Drivers(Pacman):
+    def drivers(self, multilib: str, installed: str) -> list[str]:
+        self.env["MULTILIB"] = multilib
+        self.env["INSTALLED"] = installed
+        with mock.patch.dict(os.environ, self.env):
+            return phase3._lib32_drivers(["mpv", "steam"])
+
+    def test_an_amd_machine_gets_radeons(self) -> None:
+        self.assertEqual(
+            self.drivers("steam lib32-mesa", "mesa vulkan-radeon linux"),
+            ["lib32-mesa", "lib32-vulkan-radeon"],
+        )
+
+    def test_an_nvidia_machine_gets_nvidias(self) -> None:
+        self.assertEqual(
+            self.drivers("steam", "nvidia-open nvidia-utils"),
+            ["lib32-nvidia-utils"],
+        )
+
+    def test_none_without_a_multilib_package_or_multilib(self) -> None:
+        self.assertEqual(self.drivers("lib32-mesa", "mesa"), [])
+        self.assertEqual(self.drivers("", "mesa"), [])
 
 
 if __name__ == "__main__":

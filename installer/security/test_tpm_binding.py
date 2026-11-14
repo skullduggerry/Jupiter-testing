@@ -22,7 +22,7 @@ class NoBindingWithout(Machine):
         calls = self.enroll()
         self.assertFalse([c for c in calls if c[0] == "systemd-cryptenroll"])
         self.assertFalse([c for c in calls if c[0] == "mkinitcpio"])
-        self.assertEqual(self.crypttab.read_text(), CRYPTTAB)
+        self.assertEqual(self.read(self.crypttab), CRYPTTAB)
         self.assertIn("the passphrase unlocks the disk", self.said())
         return calls
 
@@ -98,7 +98,7 @@ class Binding(Machine):
         for path in Path(self.world).rglob("*"):
             if path.is_file():
                 with self.subTest(path=path):
-                    self.assertNotIn(RECOVERY_KEY.encode(), path.read_bytes())
+                    self.assertNotIn(RECOVERY_KEY, self.read(path))
 
     def test_a_header_backup_is_the_users_alone(self) -> None:
         backup = self.world / "header.img"

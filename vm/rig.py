@@ -100,6 +100,11 @@ class Machine:
     disks: list[Disk]
     tpm: bool = True
     memory: str = "4G"
+    # A screen (bochs-display, a plain framebuffer) for the login screen to start on, which
+    # screenshot() reads through QEMU's monitor.
+    screen: bool = False
+    # How long the console may say nothing before expect() gives up.
+    silence: float = 300
     secure_boot_firmware: bool = True
     _qemu: subprocess.Popen[bytes] | None = None
     _swtpm: subprocess.Popen[bytes] | None = None
@@ -152,7 +157,13 @@ class Machine:
             Disk(d.name, d.gib, d.attached, d.foreign) for d in self.disks
         ]
         return Machine(
-            folder, disks, self.tpm, self.memory, self.secure_boot_firmware
+            folder,
+            disks,
+            tpm=self.tpm,
+            memory=self.memory,
+            secure_boot_firmware=self.secure_boot_firmware,
+            screen=self.screen,
+            silence=self.silence,
         )
 
     # Starting and stopping.
@@ -191,6 +202,14 @@ class Machine:
             "-device",
             "virtio-rng-pci",
         ]
+        if self.screen:
+            monitor = self.sockets() / "qmp.sock"
+            command += [
+                "-device",
+                "bochs-display",
+                "-qmp",
+                f"unix:{monitor},server=on,wait=off",
+            ]
         for index, disk in enumerate(d for d in self.disks if d.attached):
             command += [
                 "-drive",
@@ -370,6 +389,8 @@ class Machine:
         regex = re.compile(pattern)
         deadline = time.monotonic() + timeout
         start = 0
+        heard = time.monotonic()
+        size = len(self._text)
         while True:
             found = regex.search(self._text, start)
             if found:
@@ -377,10 +398,21 @@ class Machine:
                 self._text = self._text[found.end() :]
                 return found
             start = max(0, len(self._text) - SEARCH_BACK)
-            left = deadline - time.monotonic()
-            if left <= 0 or not self._read(min(left, 1.0)):
+            now = time.monotonic()
+            if len(self._text) != size:
+                heard, size = now, len(self._text)
+            left = deadline - now
+            # A console silent for SILENCE is stuck, whatever the timeout:
+            # say so now, with what it last showed.
+            silent = now - heard > self.silence
+            if left <= 0 or silent or not self._read(min(left, 1.0)):
+                why = (
+                    f"silent for {self.silence:.0f} s"
+                    if silent
+                    else "timed out"
+                )
                 raise TimeoutError(
-                    f"the console never showed {pattern!r}; it last "
+                    f"{why}; the console never showed {pattern!r}; it last "
                     f"showed:\n{self._text[-2000:]}"
                 )
 
@@ -439,6 +471,28 @@ class Machine:
                 f"{command!r} failed with {status}:\n{output}"
             )
         return output
+
+    def screenshot(self, path: Path) -> None:
+        """What the screen shows now, as a PPM image (needs screen)."""
+        connection = socket.socket(socket.AF_UNIX)
+        connection.connect(str(self.sockets() / "qmp.sock"))
+        with connection, connection.makefile("rw") as qmp:
+            qmp.readline()  # the greeting
+            for command in (
+                {"execute": "qmp_capabilities"},
+                {
+                    "execute": "screendump",
+                    "arguments": {"filename": str(path)},
+                },
+            ):
+                qmp.write(json.dumps(command) + "\n")
+                qmp.flush()
+                while True:
+                    reply = json.loads(qmp.readline())
+                    if "return" in reply or "error" in reply:
+                        break
+            if "error" in reply:
+                raise RuntimeError(f"screendump: {reply['error']}")
 
     def console(self) -> str:
         """What the console showed this boot so far, escapes left out."""

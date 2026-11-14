@@ -178,15 +178,18 @@ class Enrolling(Booting):
         machine.login("root", install.ROOT_PASSWORD, timeout=240)
 
     def step(self, machine: rig.Machine, backup: str = "") -> str:
-        """The TPM step as phase 4 runs it (here as root, which sudo lets
-        through), with the installer as it is now; returns what it said."""
+        """The TPM step as phase 4 runs it: as the user, through sudo (a root
+        shell would hide what the user cannot read), with the installer as it
+        is now; returns what it said."""
         with rig.mirror() as server:
             install.update(machine, server)
-        machine.send(f"{STEP}; echo :step:$?:\n")
+        machine.send(
+            f'su --pty - {install.USER} -c "{STEP}"; echo :step:$?:\n'
+        )
         said = ""
         while True:
             found = machine.expect(
-                r"passphrase for disk [^\n]*?: ?|"
+                r"passphrase for disk [^\n]*?: ?|\[sudo\] password for \w+: ?|"
                 r"Write a header backup to [^\n]*?: ?|:step:(\d+):",
                 600,
             )
@@ -194,7 +197,9 @@ class Enrolling(Booting):
             if found.group(1) is not None:
                 self.assertEqual(found.group(1), "0", said[-3000:])
                 return said
-            if "passphrase" in found.group(0):
+            if "[sudo]" in found.group(0):
+                machine.answer_secret(install.USER_PASSWORD)
+            elif "passphrase" in found.group(0):
                 machine.answer_secret(install.PASSPHRASE)
             else:
                 machine.send(f"{backup}\n")

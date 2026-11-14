@@ -76,7 +76,8 @@ class Phases(unittest.TestCase):
         known = packages("pacman.txt") + packages("core.txt")
         executable(
             self.bin / "pacman",
-            '#!/bin/sh\n[ "$1" = -Slq ] && { printf "%s\\n" '
+            '#!/bin/sh\n[ "$1" = -Qq ] && { printf "%s\\n" $INSTALLED; exit 0; }\n'
+            '[ "$1" = -Slq ] && { printf "%s\\n" '
             + " ".join(known)
             + "; exit 0; }\n"
             + RECORD.removeprefix("#!/bin/sh\n"),
@@ -182,6 +183,20 @@ class Phases(unittest.TestCase):
                 *(f"paru --sync --aur --needed {name}" for name in aur),
             ],
         )
+
+    def test_phase3_installs_steams_32_bit_drivers_for_the_card(self) -> None:
+        self.env["INSTALLED"] = "linux mesa vulkan-radeon"
+        aur = packages("aur.txt")
+        tools = ["base-devel", "git"] if aur else []
+        official = " ".join(
+            [
+                *tools,
+                "lib32-mesa",
+                "lib32-vulkan-radeon",
+                *packages("pacman.txt"),
+            ]
+        )
+        self.assertIn(f"{INSTALL} {official}", self.jupiter("3"))
 
     def test_phase3_leaves_the_firewall_without_ufw(self) -> None:
         (self.bin / "ufw").unlink()

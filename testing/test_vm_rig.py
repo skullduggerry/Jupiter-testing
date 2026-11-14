@@ -12,6 +12,7 @@ import socket
 import tarfile
 import tempfile
 import threading
+import time
 import typing
 import unittest
 import urllib.request
@@ -51,6 +52,20 @@ class Console(unittest.TestCase):
             "root@archiso ~ # \n",
         )
         self.assertIn(b"\x1b[1;31m", self.log.read_bytes(), "the log is raw")
+
+    def test_a_clone_keeps_its_firmware_and_screen(self) -> None:
+        self.machine.secure_boot_firmware = False
+        self.machine.screen = True
+        clone = self.machine.clone(self.machine.folder.parent / "clone")
+        self.assertFalse(clone.secure_boot_firmware)
+        self.assertTrue(clone.screen)
+
+    def test_a_silent_console_fails_long_before_the_timeout(self) -> None:
+        self.machine.silence = 0.3
+        started = time.monotonic()
+        with self.assertRaisesRegex(TimeoutError, "silent for 0 s"):
+            self.machine.expect("never", 30)
+        self.assertLess(time.monotonic() - started, 3)
 
     def test_consumes_what_it_matched(self) -> None:
         self.vm.sendall(b"one\ntwo\n")

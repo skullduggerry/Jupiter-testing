@@ -68,6 +68,12 @@ elif name == "systemd-cryptenroll":
             "tpm2-policy-hash": os.environ["POLICY"],
         }}
     json.dump(header, open(header_path, "w"))
+elif name == "cat":
+    # root's sudo cat of a file only root reads: allowed here for a moment.
+    mode = os.stat(args[-1]).st_mode
+    os.chmod(args[-1], 0o600)
+    sys.stdout.write(open(args[-1]).read())
+    os.chmod(args[-1], mode)
 elif name == "install":
     os.execvp("/usr/bin/install", ["install", *args])
 elif name == "chown":
@@ -83,6 +89,7 @@ COMMANDS = [
     "mkinitcpio",
     "install",
     "chown",
+    "cat",
 ]
 
 
@@ -111,6 +118,9 @@ class Machine(unittest.TestCase):
         self.stub.write_bytes(b"\x06\x00\x00\x00systemd-stub")
         self.crypttab = tmp / "crypttab"
         self.crypttab.write_text(CRYPTTAB)
+        # Root's alone on a real system (0600, from systemd's package): the
+        # step, which runs as the user, must read it through sudo.
+        self.crypttab.chmod(0o000)
         self.measured = tmp / "tpm2-measure.log"
         self.measured.write_text(
             "\x1e"
@@ -146,6 +156,16 @@ class Machine(unittest.TestCase):
         self.enterContext(mock.patch.dict(os.environ, environment))
         self.printed = self.enterContext(mock.patch("builtins.print"))
         self.answers: list[str] = [""]
+
+    @staticmethod
+    def read(path: Path) -> str:
+        """A file only root reads, read as root would."""
+        mode = path.stat().st_mode
+        path.chmod(0o600)
+        try:
+            return path.read_text()
+        finally:
+            path.chmod(mode)
 
     def secure_boot(self, setup: bool, on: bool) -> None:
         for name, value in (("SetupMode", setup), ("SecureBoot", on)):
@@ -190,20 +210,20 @@ class Binding(Machine):
     def test_tries_the_tpm_and_fixes_the_root_volume_key(self) -> None:
         calls = self.enroll()
         self.assertEqual(
-            self.crypttab.read_text(),
+            self.read(self.crypttab),
             f"root UUID={LUKS_UUID} none discard,x-initrd.attach,"
             "tpm2-device=auto,tpm2-measure-pcr=yes,"
             f"fixate-volume-key={VOLUME_KEY_ID}\n",
         )
         self.assertEqual(
-            (self.crypttab.parent / "crypttab~").read_text(), CRYPTTAB
+            self.read(self.crypttab.parent / "crypttab~"), CRYPTTAB
         )
         self.assertEqual(self.crypttab.stat().st_mode & 0o777, 0o600)
         self.assertIn(["mkinitcpio", "--allpresets"], calls)
 
     def test_run_again_changes_nothing(self) -> None:
         self.enroll()
-        crypttab = self.crypttab.read_text()
+        crypttab = self.read(self.crypttab)
         calls = self.enroll()
         self.assertEqual(
             [call[0] for call in calls],
@@ -212,11 +232,13 @@ class Binding(Machine):
                 "lsblk",
                 "sbctl",
                 "cryptsetup",  # luksDump: the TPM slot matches
-                "cryptsetup",  # luksUUID: crypttab has its options
+                "cryptsetup",  # luksUUID
+                "cat",  # the measurement log, through sudo
+                "cat",  # crypttab, root's alone: it has its options
                 "cryptsetup",  # luksDump: a recovery key is there
             ],
         )
-        self.assertEqual(self.crypttab.read_text(), crypttab)
+        self.assertEqual(self.read(self.crypttab), crypttab)
         self.assertIn("nothing to change", self.said())
 
     def test_enrols_again_once_pcr_7_changed(self) -> None:
@@ -233,7 +255,7 @@ class Binding(Machine):
         self.measured.unlink()
         self.enroll()
         self.assertEqual(
-            self.crypttab.read_text(),
+            self.read(self.crypttab),
             f"root UUID={LUKS_UUID} none discard,x-initrd.attach,"
             "tpm2-device=auto,tpm2-measure-pcr=yes\n",
         )
