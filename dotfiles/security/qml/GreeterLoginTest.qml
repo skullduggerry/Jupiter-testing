@@ -58,6 +58,7 @@ TestCase {
     function test_nothingIsSentWithoutAPassword() {
         enter("alice", "");
         verify(!GreeterService.busy);
+        compare(GreeterService.errorText, "No password entered!");
         return wait(300).then(() => compare(requests().length, 0, "greetd was asked nothing"));
     }
 

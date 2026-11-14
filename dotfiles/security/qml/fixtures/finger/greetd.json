@@ -1,0 +1,35 @@
+{
+    "erin": [
+        {
+            "secret": "Password:",
+            "answer": ""
+        },
+        {
+            "info": "Place your finger on the fingerprint reader"
+        }
+    ],
+    "frank": [
+        {
+            "secret": "Password:",
+            "answer": ""
+        },
+        {
+            "info": "Place your finger on the fingerprint reader"
+        },
+        {
+            "info": "Failed to match fingerprint"
+        },
+        {
+            "fail": true
+        }
+    ],
+    "gina": [
+        {
+            "secret": "Password:",
+            "answer": ""
+        },
+        {
+            "fail": true
+        }
+    ]
+}

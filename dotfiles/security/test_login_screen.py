@@ -20,8 +20,19 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from typing import Any
 
-from harness import DOTFILES, environment, load, qml, source, temporary
+from harness import (
+    DOTFILES,
+    SECRET,
+    TESTING,
+    environment,
+    load,
+    pam,
+    qml,
+    source,
+    temporary,
+)
 
 QML = Path(__file__).resolve().parent / "qml"
 GREETER_ENV = DOTFILES / "etc/greetd/quickshell/greeter-env.py"
@@ -170,6 +181,23 @@ class Stacks(unittest.TestCase):
             [
                 ["auth", "required", "pam_securetty.so"],
                 ["auth", "requisite", "pam_nologin.so"],
+                [
+                    "auth",
+                    "[success=ok",
+                    "default=1]",
+                    "pam_exec.so",
+                    "quiet",
+                    "expose_authtok",
+                    "/etc/greetd/finger-asked",
+                ],
+                [
+                    "auth",
+                    "[success=done",
+                    "default=die]",
+                    "pam_fprintd.so",
+                    "max-tries=3",
+                    "timeout=10",
+                ],
                 ["auth", "include", "system-local-login"],
                 ["-auth", "optional", "pam_gnome_keyring.so"],
                 ["account", "include", "system-local-login"],
@@ -196,11 +224,141 @@ class Stacks(unittest.TestCase):
                 with self.subTest(stack=name, rule=" ".join(rule)):
                     self.assertNotIn(rule[1], ("sufficient",))
                     self.assertNotIn(
-                        rule[2],
-                        ("pam_permit.so", "pam_rootok.so", "pam_exec.so"),
+                        rule[-1], ("pam_permit.so", "pam_rootok.so")
                     )
                     if rule[1] == "optional":
                         self.assertTrue(rule[0].startswith("-"), "may fail")
+                    # Only the reader may end the stack early; the empty
+                    # answer's check may only skip the reader or not.
+                    if "pam_exec.so" in rule:
+                        self.assertEqual(
+                            rule[1:3], ["[success=ok", "default=1]"]
+                        )
+                        self.assertEqual(rule[-1], "/etc/greetd/finger-asked")
+                    if any("done" in word for word in rule):
+                        self.assertEqual(rule[3], "pam_fprintd.so")
+                        self.assertEqual(rule[2], "default=die]")
+
+
+# A stand-in reader: says what pam_fprintd says, and matches once the test
+# put a finger on it (touched), as pam_fprintd's PAM_SUCCESS; otherwise an
+# authentication failure.
+READER = """#!/bin/sh
+echo "Place your finger on the fingerprint reader"
+echo attempt >>"{folder}/reads"
+[ -e "{folder}/touched" ]
+"""
+PASSWORD = """#!/bin/sh
+read -r password
+[ "$password" = "{secret}" ]
+"""
+# system-local-login as the system's ends: the password checked, failing as a
+# wrong one does (and as pam_faillock counts it, noted in failures).
+LOCAL_LOGIN = """auth [success=1 default=ignore] pam_exec.so expose_authtok quiet {folder}/password
+auth [default=die] pam_exec.so quiet {folder}/count-failure
+auth required pam_permit.so
+account required pam_permit.so
+session required pam_permit.so
+"""
+
+
+@unittest.skipIf(pam.available(), pam.available())
+class Conversations(unittest.TestCase):
+    """etc/pam.d/greetd as greetd runs it, in harness/pam.py's sandbox: the
+    password's question once, an empty answer to the reader alone. The
+    reader is a stand-in in place of pam_fprintd, finger-asked the repo's,
+    system-local-login a password check."""
+
+    def setUp(self) -> None:
+        self.folder = temporary(self)
+        self.stacks = self.folder / "pam.d"
+        self.stacks.mkdir()
+        scripts = {
+            "reader": READER.format(folder=self.folder),
+            "password": PASSWORD.format(secret=SECRET),
+            "count-failure": f'#!/bin/sh\necho failed >>"{self.folder}/failures"\nexit 1\n',
+        }
+        for name, text in scripts.items():
+            (self.folder / name).write_text(text)
+            (self.folder / name).chmod(0o755)
+        (self.stacks / "system-local-login").write_text(
+            LOCAL_LOGIN.format(folder=self.folder)
+        )
+        self.stack(DOTFILES / "etc/greetd/finger-asked")
+
+    def stack(self, finger_asked: Path, reader: str = "") -> None:
+        reader = reader or f"pam_exec.so quiet stdout {self.folder}/reader"
+        text = (DOTFILES / "etc/pam.d/greetd").read_text()
+        text = text.replace("pam_fprintd.so max-tries=3 timeout=10", reader)
+        text = text.replace("/etc/greetd/finger-asked", str(finger_asked))
+        (self.stacks / "greetd").write_text(text)
+
+    def login(self, *answers: str) -> dict[str, Any]:
+        done = subprocess.run(
+            pam.command(
+                self.stacks,
+                "python3",
+                str(TESTING / "harness/converse.py"),
+                "greetd",
+                os.environ.get("USER", "nobody"),
+            ),
+            input=json.dumps(list(answers)),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        result: dict[str, Any] = json.loads(done.stdout)
+        return result
+
+    def said(self, result: dict[str, Any]) -> list[str]:
+        return [message["text"] for message in result["said"]]
+
+    def reads(self) -> int:
+        reads = self.folder / "reads"
+        return len(reads.read_text().splitlines()) if reads.exists() else 0
+
+    def test_the_password_logs_in_without_the_reader(self) -> None:
+        result = self.login(SECRET)
+        self.assertEqual((result["authenticate"], result["account"]), (0, 0))
+        self.assertEqual(self.said(result), ["Password: "], "asked once")
+        self.assertEqual(self.reads(), 0, "a typed password never waits on it")
+
+    def test_a_wrong_password_does_not(self) -> None:
+        result = self.login("not the password")
+        self.assertNotEqual(result["authenticate"], 0)
+        self.assertEqual(self.reads(), 0)
+
+    def test_an_empty_answer_asks_the_reader(self) -> None:
+        (self.folder / "touched").touch()
+        result = self.login("")
+        self.assertEqual((result["authenticate"], result["account"]), (0, 0))
+        self.assertIn(
+            "Place your finger on the fingerprint reader", self.said(result)
+        )
+        self.assertEqual(self.reads(), 1)
+
+    def test_a_finger_that_does_not_match_fails_uncounted(self) -> None:
+        result = self.login("")
+        self.assertNotEqual(result["authenticate"], 0)
+        self.assertEqual(self.reads(), 1)
+        self.assertFalse(
+            (self.folder / "failures").exists(), "no wrong password"
+        )
+
+    def test_without_pam_fprintd_an_empty_answer_fails(self) -> None:
+        self.stack(
+            DOTFILES / "etc/greetd/finger-asked", "pam_not_installed.so"
+        )
+        result = self.login("")
+        self.assertNotEqual(result["authenticate"], 0)
+        self.assertEqual(self.login(SECRET)["authenticate"], 0)
+
+    def test_without_finger_asked_the_password_still_works(self) -> None:
+        self.stack(self.folder / "missing")
+        (self.folder / "touched").touch()
+        self.assertEqual(self.login(SECRET)["authenticate"], 0)
+        self.assertNotEqual(self.login("")["authenticate"], 0)
+        self.assertEqual(self.reads(), 0)
 
 
 def install(
