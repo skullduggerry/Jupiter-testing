@@ -54,7 +54,7 @@ OVMF_VARS = OVMF / "OVMF_VARS.4m.fd"  # no keys: Setup Mode
 UPSTREAM = os.environ.get("JUPITER_MIRROR", "https://geo.mirror.pkgbuild.com")
 HOST_PACKAGES = Path("/var/cache/pacman/pkg")
 TOOLS = {
-    "qemu-system-x86_64": "qemu-base",
+    "qemu-system-x86_64": "qemu-system-x86",
     "swtpm": "swtpm",
     "bsdtar": "libarchive",
 }

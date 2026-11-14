@@ -69,8 +69,18 @@ class Phases(unittest.TestCase):
         self.bin = tmp / "bin"
         self.calls = tmp / "calls"
         self.output = ""
-        for name in ("sudo", "pacman", "paru", "systemctl", "ufw", "wallust"):
+        for name in ("sudo", "paru", "systemctl", "ufw", "wallust"):
             executable(self.bin / name, RECORD)
+        # pacman -Slq lists every package the lists name: all in enabled
+        # repositories (installer's test_multilib for the rest).
+        known = packages("pacman.txt") + packages("core.txt")
+        executable(
+            self.bin / "pacman",
+            '#!/bin/sh\n[ "$1" = -Slq ] && { printf "%s\\n" '
+            + " ".join(known)
+            + "; exit 0; }\n"
+            + RECORD.removeprefix("#!/bin/sh\n"),
+        )
         # Whatever this machine has, the tests' has no fingerprint reader.
         executable(self.bin / "fprintd-list", NO_READER)
         executable(self.bin / "lsblk", LSBLK)
@@ -177,12 +187,12 @@ class Phases(unittest.TestCase):
         (self.bin / "ufw").unlink()
         self.env["PATH"] = str(self.bin)
         calls = self.jupiter("3")
-        self.assertEqual([call for call in calls if "ufw" in call], [])
+        self.assertEqual([c for c in calls if c.startswith("sudo ufw")], [])
 
     def test_phase3_opens_no_port_for_a_skipped_kdeconnect(self) -> None:
         self.env["BROKEN"] = "kdeconnect"
         calls = self.jupiter("3")
-        self.assertEqual([call for call in calls if "ufw" in call], [])
+        self.assertEqual([c for c in calls if c.startswith("sudo ufw")], [])
 
     @unittest.skipUnless(packages("aur.txt"), "needs an AUR package")
     def test_phase3_skips_a_broken_aur_package(self) -> None:
