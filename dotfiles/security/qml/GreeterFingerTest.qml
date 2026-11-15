@@ -42,7 +42,7 @@ TestCase {
         ignoreWarning("Received unexpected greetd response");
         return tryVerify(() => GreeterService.ready, 5000).then(() => {
             verify(GreeterService.fingerprint, "greeter-env.py found a reader");
-            compare(GreeterService.promptText, "Password, or Enter for a finger");
+            compare(GreeterService.promptText, "Password, or Enter for fingerprint");
             enter("frank", "");
             return settled();
         }).then(() => {
@@ -51,7 +51,7 @@ TestCase {
             compare(login.slice(0, 4).map(request => request.type).join(" "), "create_session post_auth_message_response post_auth_message_response post_auth_message_response");
             compare(login[1].response, "", "the password's question answered with nothing");
             compare(GreeterService.errorText, "Place your finger on the fingerprint reader\nFailed to match fingerprint");
-            compare(GreeterService.promptText, "Password, or Enter for a finger");
+            compare(GreeterService.promptText, "Password, or Enter for fingerprint");
             verify(!GreeterService.answering);
         });
     }
