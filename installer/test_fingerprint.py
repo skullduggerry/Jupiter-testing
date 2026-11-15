@@ -139,6 +139,27 @@ class Fingerprint(unittest.TestCase):
         self.assertEqual(calls, [["fprintd-list", self.user]])
         self.assertEqual(self.pam.read_text().count("pam_fprintd"), 1)
 
+    def test_gives_up_on_a_finger_as_the_login_screen_does(self) -> None:
+        self.set_up(A_FINGER)
+        [line] = [
+            text
+            for text in self.pam.read_text().splitlines()
+            if "fprintd" in text
+        ]
+        self.assertEqual(
+            line.split()[2:], ["pam_fprintd.so", "max-tries=3", "timeout=10"]
+        )
+
+    def test_an_older_runs_line_gets_the_limits(self) -> None:
+        self.pam.write_text(
+            "#%PAM-1.0\n" + phase4.OLD_FINGERPRINT + SUDO.split("\n", 1)[1]
+        )
+        self.set_up(A_FINGER)
+        self.assertEqual(
+            self.pam.read_text(),
+            "#%PAM-1.0\n" + phase4.FINGERPRINT + SUDO.split("\n", 1)[1],
+        )
+
     def test_no_reader(self) -> None:
         self.env["STATUS"] = "1"
         calls = self.set_up("No devices available\n")

@@ -9,7 +9,8 @@ gnome-keyring does: the prompt's path, then Completed once the "dialog" was
 answered (the keyring rewritten unencrypted) or dismissed. The real
 gnome-keyring-daemon, on a session bus of its own in a throwaway home, shows
 that the call exists and hands out a prompt (its runtime folder short: the
-control socket's path must stay under 108 bytes).
+control socket's path must stay under 108 bytes), once it owns its name on
+the bus, which `--unlock` does not wait for.
 """
 
 import json
@@ -266,7 +267,10 @@ class GnomeKeyring(unittest.TestCase):
         home = Path(self.enterContext(tempfile.TemporaryDirectory(dir="/tmp")))
         session = f"""
 mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
-printf %s "$KEYRING_PASSWORD" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+printf %s "$KEYRING_PASSWORD" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1
+# --unlock can return before the daemon owns its name; a call then would
+# have D-Bus start a second daemon. Wait for the name, starting nothing.
+gdbus wait --session --timeout 30 org.freedesktop.secrets
 gdbus call --session --dest org.freedesktop.secrets \\
     --object-path /org/freedesktop/secrets \\
     --method {keyring.INTERNAL}.ChangeWithPrompt {keyring.LOGIN}

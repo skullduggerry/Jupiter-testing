@@ -91,7 +91,12 @@ class DisksNotChosen(Encrypting):
                     self.assertFalse(
                         [arg for arg in call[1:-1] if arg.startswith(disk)]
                     )
-        self.assertEqual(calls[0][:2], ["lsblk", "--json"])
+        # The keymap's list and loadkeys name no disk; then lsblk is first.
+        self.assertEqual(
+            [call[:2] for call in calls[:3]],
+            [["localectl", "list-keymaps"], ["loadkeys", "de-latin1"],
+             ["lsblk", "--json"]],
+        )  # fmt: skip
 
     def test_a_disk_with_something_on_it_is_not_offered(self) -> None:
         self.install()

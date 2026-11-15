@@ -13,6 +13,7 @@ the real one does.
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -74,6 +75,8 @@ elif name == "cat":
     os.chmod(args[-1], 0o600)
     sys.stdout.write(open(args[-1]).read())
     os.chmod(args[-1], mode)
+elif name == "mkinitcpio":
+    sys.exit(int(os.environ.get("MKINITCPIO_FAILS", "0")))
 elif name == "install":
     os.execvp("/usr/bin/install", ["install", *args])
 elif name == "chown":
@@ -240,6 +243,16 @@ class Binding(Machine):
         )
         self.assertEqual(self.read(self.crypttab), crypttab)
         self.assertIn("nothing to change", self.said())
+
+    def test_a_failed_image_build_is_built_again_by_a_rerun(self) -> None:
+        os.environ["MKINITCPIO_FAILS"] = "1"
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.enroll()
+        self.assertEqual(self.read(self.crypttab), CRYPTTAB, "put back")
+        del os.environ["MKINITCPIO_FAILS"]
+        calls = self.enroll()
+        self.assertIn(["mkinitcpio", "--allpresets"], calls)
+        self.assertIn("tpm2-device=auto", self.read(self.crypttab))
 
     def test_enrols_again_once_pcr_7_changed(self) -> None:
         self.enroll()

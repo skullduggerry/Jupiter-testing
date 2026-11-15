@@ -116,7 +116,7 @@ table = {{"partitiontable": {{"partitions": [
 with open(os.environ["CALLS"], "a") as calls:
     calls.write(json.dumps([name, *args, data]) + "\\n")
 print({{
-    "lsblk": {json.dumps(json.dumps(LSBLK))},
+    "lsblk": os.environ.get("LSBLK") or {json.dumps(json.dumps(LSBLK))},
     "timedatectl": "UTC\\nEurope/Berlin",
     "localectl": "us\\nde-latin1",
     "sfdisk": json.dumps(table) if "--json" in args else "",
@@ -145,6 +145,7 @@ COMMANDS = [
     "genfstab",
     "arch-chroot",
     "findmnt",
+    "loadkeys",
 ]
 KBD_MODEL_MAP = "de-latin1\tde\tpc105\t-\tterminate:ctrl_alt_bksp\t-\n"
 USER = "jupitertest"
@@ -175,6 +176,8 @@ class Installing(unittest.TestCase):
             "EFI": tmp / "efi",
             "LOCALE_GEN": tmp / "locale.gen",
             "KBD_MODEL_MAP": tmp / "kbd-model-map",
+            "ERASED": tmp / "jupiter-erased",
+            "IWD": tmp / "iwd",
         }.items():
             self.enterContext(mock.patch.object(phase1, name, value))
         # A machine with only an NVIDIA card, whatever this one has.
@@ -224,6 +227,7 @@ class Encrypting(Installing):
 
     def install(self) -> list[list[str]]:
         answers = [
+            "de-latin1",
             "/dev/vdz",
             "",  # encrypted, the default
             *self.DATA_ANSWERS,
@@ -231,7 +235,6 @@ class Encrypting(Installing):
             USER,
             "UTC",
             "en_US.UTF-8",
-            "de-latin1",
             "y",
         ]
         passwords = [
@@ -268,6 +271,8 @@ class Declining(Installing):
 
     def install(self, erase: str = "y") -> list[list[str]]:
         answers = [
+            "de-latin1",
+            "",  # no default: three disks would take it
             "/dev/nope",  # not offered
             "/dev/vdz",
             "n",  # not encrypted
@@ -277,7 +282,6 @@ class Declining(Installing):
             "Mars/Olympus",  # not a time zone
             "Europe/Berlin",
             "de_DE.UTF-8",
-            "de-latin1",
             erase,
         ]
         passwords = [
@@ -304,8 +308,8 @@ class PhaseOne(Declining):
         mnt = str(self.mnt)
         run = [call[:-1] for call in calls]
         self.assertEqual(
-            [call[0] for call in calls[:3]],
-            ["lsblk", "timedatectl", "localectl"],
+            [call[0] for call in calls[:4]],
+            ["localectl", "loadkeys", "lsblk", "timedatectl"],
         )
         self.assertNotIn(
             "/dev/vdy", json.dumps(calls), "the other disk is left alone"
@@ -459,7 +463,9 @@ class PhaseOne(Declining):
                 f"[{','.join(self.calls.read_text().splitlines())}]"
             )
         ]
-        self.assertEqual(calls, ["lsblk", "timedatectl", "localectl"])
+        self.assertEqual(
+            calls, ["localectl", "loadkeys", "lsblk", "timedatectl"]
+        )
         self.assertEqual(list(self.mnt.iterdir()), [])
 
 
@@ -467,8 +473,8 @@ class EncryptedInstall(Encrypting):
     def test_asks_for_the_passphrase_twice_after_the_disk(self) -> None:
         self.install()
         self.assertEqual(
-            self.questions[:2],
-            ["Disk [/dev/vdy]: ", "Encrypt /dev/vdz? [Y/n] "],
+            self.questions[:3],
+            ["Keymap [us]: ", "Disk: ", "Encrypt /dev/vdz? [Y/n] "],
         )
         self.assertEqual(
             self.prompts[:2], ["Passphrase for the disk: ", "Repeat it: "]
@@ -662,6 +668,131 @@ class EncryptedInstall(Encrypting):
             (self.mnt / "etc/crypttab").read_text().count("\n"), 1
         )
         self.assertFalse((self.mnt / "etc/cryptsetup-keys.d").exists())
+
+
+class Keymap(Encrypting):
+    def test_is_asked_and_loaded_before_any_password_is_typed(self) -> None:
+        loaded_by_then = []
+        new_password = phase1._new_password
+
+        def asked(*args: str) -> str:
+            loaded_by_then.append("loadkeys" in self.calls.read_text())
+            return new_password(*args)
+
+        with mock.patch.object(phase1, "_new_password", side_effect=asked):
+            self.install()
+        self.assertEqual(self.questions[0], "Keymap [us]: ")
+        self.assertEqual(
+            loaded_by_then, [True, True, True]
+        )  # disk, user, root
+        self.assertIn(["loadkeys", "de-latin1", ""], self.calls_made())
+
+
+class Rerun(Encrypting):
+    """Phase 1 again after an attempt that failed past partitioning: its
+    volumes still open, its data disk half made."""
+
+    def test_closes_what_the_last_attempt_left_open(self) -> None:
+        devices = json.loads(json.dumps(LSBLK))
+        target = devices["blockdevices"][1]
+        target["children"] = [
+            {"name": "/dev/vdz2", "size": 63 * GIB, "type": "part",
+             "mountpoints": [None], "fstype": "crypto_LUKS",
+             "children": [{"name": "/dev/mapper/root", "size": 63 * GIB,
+                           "type": "crypt", "mountpoints": [None],
+                           "fstype": "btrfs"}]},
+        ]  # fmt: skip
+        os.environ["LSBLK"] = json.dumps(devices)
+        calls = [call[:-1] for call in self.install()]
+        close = ["cryptsetup", "close", "/dev/mapper/root"]
+        self.assertIn(close, calls)
+        self.assertLess(
+            calls.index(close),
+            calls.index(["sfdisk", "--wipe", "always", "--wipe-partitions",
+                         "always", "/dev/vdz"]),
+        )  # fmt: skip
+        self.assertEqual([c[0] for c in calls].count("lsblk"), 2, "read again")
+
+    def test_leaves_a_volume_in_use_open(self) -> None:
+        devices = json.loads(json.dumps(LSBLK))
+        devices["blockdevices"][4]["children"][0]["children"] = [
+            {"name": "/dev/mapper/stick", "size": GIB, "type": "crypt",
+             "mountpoints": ["/somewhere"]},
+        ]  # fmt: skip
+        os.environ["LSBLK"] = json.dumps(devices)
+        calls = self.install()
+        self.assertFalse(
+            [c for c in calls if c[:2] == ["cryptsetup", "close"]]
+        )
+
+    def test_remembers_the_data_disks_it_erases(self) -> None:
+        self.install()
+        self.assertEqual(phase1.ERASED.read_text(), "/dev/vdx\n")
+
+    def test_offers_again_a_data_disk_it_had_begun(self) -> None:
+        phase1.ERASED.write_text("/dev/vdw\n")  # as if it had made it
+        self.DATA_ANSWERS = (*self.DATA_ANSWERS, "")  # no to it this time
+        self.install()
+        self.assertIn(
+            "Erase and encrypt /dev/vdw  500 GiB  Windows for data? [y/N] ",
+            self.questions,
+        )
+
+
+class DiskChoice(Encrypting):
+    def test_says_what_each_disk_holds_and_offers_no_default(self) -> None:
+        self.install()
+        printed = [
+            str(c.args[0]) for c in self.printed.call_args_list if c.args
+        ]
+        for line in (
+            "  /dev/vdy  32 GiB  Other  (empty)",
+            "  /dev/vdz  64 GiB  Target  (empty)",
+            "  /dev/vdw  500 GiB  Windows  (gpt, vfat, ntfs)",
+        ):
+            self.assertIn(line, printed)
+        self.assertIn("Disk: ", self.questions)
+
+    def test_offers_the_only_disk_as_the_default(self) -> None:
+        devices = {"blockdevices": [LSBLK["blockdevices"][1]]}
+        os.environ["LSBLK"] = json.dumps(devices)
+        self.DATA_ANSWERS = ()
+        self.install()
+        self.assertIn("Disk [/dev/vdz]: ", self.questions)
+
+
+class Wifi(Encrypting):
+    """The networks the live ISO joined with iwctl, joined again after the
+    reboot through NetworkManager."""
+
+    def test_carries_a_wpa_network_over_root_only(self) -> None:
+        phase1.IWD.mkdir()
+        (phase1.IWD / "Home Net.psk").write_text(
+            "[Security]\nPreSharedKey=abcd\nPassphrase=pa\\ss word\n"
+        )
+        (phase1.IWD / "=caf\u00e9.psk").write_text(
+            "[Security]\nPassphrase=x\n"
+        )
+        (phase1.IWD / "Cafe.open").write_text("")
+        (phase1.IWD / "Hex only.psk").write_text(
+            "[Security]\nPreSharedKey=ab\n"
+        )
+        self.install()
+        folder = self.mnt / phase1.NM_CONNECTIONS
+        self.assertEqual(
+            sorted(p.name for p in folder.iterdir()), ["Home Net.nmconnection"]
+        )
+        saved = folder / "Home Net.nmconnection"
+        self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+        text = saved.read_text()
+        for line in ("id=Home Net", "type=wifi", "ssid=Home Net",
+                     "key-mgmt=wpa-psk", "psk=pa\\\\ss word"):  # fmt: skip
+            self.assertIn(f"\n{line}\n", "\n" + text)
+
+    def test_none_without_iwd(self) -> None:
+        self.install()
+        self.assertFalse((self.mnt / phase1.NM_CONNECTIONS).exists())
 
 
 class SignedBoot(Encrypting):

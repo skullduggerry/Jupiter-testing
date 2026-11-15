@@ -61,7 +61,12 @@ class Answers:
 
 def dialogue(answers: Answers) -> list[tuple[str, str]]:
     """Phase 1's questions in order, and the answers."""
-    lines: list[tuple[str, str]] = [(r"Disk \[[^]]*\]: $", answers.disk)]
+    # The keymap first, loaded before any password; the disk with a default
+    # only where one disk would take the system.
+    lines: list[tuple[str, str]] = [
+        (r"Keymap \[us\]: $", answers.keymap),
+        (r"Disk(?: \[[^]]*\])?: $", answers.disk),
+    ]
     if answers.encrypt is not None:
         lines.append(
             (
@@ -93,7 +98,6 @@ def dialogue(answers: Answers) -> list[tuple[str, str]]:
         (r"Repeat it: $", ROOT_PASSWORD),
         (r"Time zone \[UTC\]: $", "Europe/Berlin"),
         (r"Locale \[en_US.UTF-8\]: $", "en_US.UTF-8"),
-        (r"Keymap \[us\]: $", answers.keymap),
         (rf"Erase everything on {answers.disk}\? \[y/N\] $", "y"),
     ]
     return lines

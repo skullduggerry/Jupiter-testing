@@ -86,13 +86,13 @@ class Passwords(Installing):
 
     def install(self) -> list[list[str]]:
         answers = [
+            "us",
             "/dev/vdz",
             "n",
             "box",
             "jane",
             "UTC",
             "en_US.UTF-8",
-            "us",
             "y",
         ]
         with (
@@ -227,7 +227,14 @@ class Sources(unittest.TestCase):
 
         self.assertEqual(
             phase4.FINGERPRINT.split(),
-            ["auth", "sufficient", "pam_fprintd.so"],
+            # The greetd stack's limits: the password after 3 tries or 10 s.
+            [
+                "auth",
+                "sufficient",
+                "pam_fprintd.so",
+                "max-tries=3",
+                "timeout=10",
+            ],
         )
         self.assertEqual(Path("/etc/pam.d/sudo"), phase4.SUDO_PAM)
 
