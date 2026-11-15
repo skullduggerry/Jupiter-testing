@@ -285,6 +285,15 @@ class Machine:
         lock.flush()
         self._locked = lock
 
+    def remove(self) -> None:
+        """Delete the machine's folder, refusing while a run holds it: its
+        lock file, deleted, would let the next run lock a new one beside a
+        VM still using the old disks."""
+        if self.folder.exists():
+            self._lock()
+        shutil.rmtree(self.folder, ignore_errors=True)
+        self.kill()
+
     def sockets(self) -> Path:
         """A short folder for the machine's sockets: a Unix socket's path
         must stay under 108 bytes, and the machine's folder may be long."""

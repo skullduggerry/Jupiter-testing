@@ -10,7 +10,6 @@ install runs again only when the installer changed.
 from __future__ import annotations
 
 import hashlib
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 
@@ -218,11 +217,16 @@ def installed(
             folder, disks, tpm=tpm, secure_boot_firmware=firmware
         )
     for old in VMS.glob(f"{name}-*"):
-        shutil.rmtree(old)
+        rig.Machine(old, disks).remove()
     machine = rig.Machine(
         folder, disks, tpm=tpm, secure_boot_firmware=firmware
     )
-    output = install(machine, answers, revision=revision)
+    try:
+        output = install(machine, answers, revision=revision)
+    finally:
+        # Not left running on a failure, holding the folder another test
+        # would install into again.
+        machine.kill()
     (folder / "phases.log").write_text(output)
     (folder / "installed").write_text(key)
     return machine

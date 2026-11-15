@@ -43,7 +43,7 @@ class Booting(unittest.TestCase):
         # The test's own folder, kept after it to read its serial logs from,
         # and replaced by its next run.
         folder = install.VMS / self.id().removeprefix("vm.test_install.")
-        shutil.rmtree(folder, ignore_errors=True)
+        rig.Machine(folder, disks).remove()
         machine = base.clone(folder)
         self.addCleanup(machine.kill)
         return machine

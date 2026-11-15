@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from vm import rig
+from vm import install, rig
 
 
 class Console(unittest.TestCase):
@@ -72,6 +72,33 @@ class Console(unittest.TestCase):
         self.machine.kill()
         other._lock()  # free once the first is done with them
         other.kill()
+
+    def test_a_folder_in_use_is_not_deleted(self) -> None:
+        self.machine._lock()
+        other = rig.Machine(self.machine.folder, [rig.Disk("system", 1)])
+        with self.assertRaisesRegex(RuntimeError, "in use by process"):
+            other.remove()
+        self.assertTrue(self.machine.disk("system").exists())
+        self.machine.kill()
+        other.remove()
+        self.assertFalse(self.machine.folder.exists())
+
+    def test_a_failed_install_leaves_no_vm_running(self) -> None:
+        killed = []
+        with (
+            mock.patch.object(install, "VMS", self.machine.folder.parent),
+            mock.patch.object(
+                install, "install", side_effect=RuntimeError("x")
+            ),
+            mock.patch.object(
+                rig.Machine, "kill", lambda m: killed.append(m.folder)
+            ),
+            self.assertRaisesRegex(RuntimeError, "x"),
+        ):
+            install.installed(
+                "failing", install.Answers(), [rig.Disk("system", 1)]
+            )
+        self.assertTrue(killed and killed[-1].name.startswith("failing-"))
 
     def test_a_vm_dies_with_the_run_that_started_it(self) -> None:
         # A driver that starts a stand-in VM the rig's way, then is killed.
