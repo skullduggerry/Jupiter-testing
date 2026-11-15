@@ -127,7 +127,21 @@ class Phases(unittest.TestCase):
             capture_output=True,
             text=True,
         ).stdout
-        return [line.rstrip() for line in self.calls.read_text().splitlines()]
+        calls = [line.rstrip() for line in self.calls.read_text().splitlines()]
+        # Phase 3 turns on pacman's look in this machine's own pacman.conf,
+        # where it is off (installer's test_multilib for the step itself).
+        if phase == "3":
+            conf = phase3.PACMAN_CONF
+            look = [
+                c
+                for c in calls
+                if c.startswith("sudo install -b -m 0644 ")
+                and c.endswith(f" {conf}")
+            ]
+            text = conf.read_text()
+            self.assertEqual(len(look), phase3._with_look(text) != text)
+            calls = [c for c in calls if c not in look]
+        return calls
 
     def test_phase2_installs_the_desktop(self) -> None:
         core = " ".join(packages("core.txt"))

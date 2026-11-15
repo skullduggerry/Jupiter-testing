@@ -3,8 +3,9 @@ import Quickshell
 import Quickshell.Io
 import "../greeter"
 
-// A finger the reader matches logs in: only once greetd says so, and with
-// nothing typed. The one login of this file, last (fixtures/finger/).
+// A finger the reader matches logs in, from the scan the greeter begins as
+// it opens: only once greetd says so, and with nothing typed or pressed. The
+// one login of this file (fixtures/GreeterFingerLoginTest/, erin first).
 TestCase {
     readonly property FileView log: FileView {
         path: Quickshell.env("GREETD_LOG")
@@ -20,11 +21,9 @@ TestCase {
     function test_aMatchingFingerLogsIn() {
         ignoreWarning("Hyprland");
         return tryVerify(() => GreeterService.ready, 5000).then(() => {
-            GreeterService.username = "erin";
-            GreeterService.password = "";
-            GreeterService.submit();
             return tryVerify(() => asked("start_session").length > 0, 5000, "the session starts");
         }).then(() => {
+            compare(asked("create_session").map(request => request.username).join(" "), "erin");
             compare(asked("post_auth_message_response").map(request => request.response === undefined ? "-" : request.response).join(" "), " -");
             compare(asked("start_session")[0].cmd.join(" "), "uwsm start -- hyprland.desktop");
         });

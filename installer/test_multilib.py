@@ -2,7 +2,8 @@
 no enabled repository and the file has it commented out, as Arch ships it;
 left alone otherwise. And the 32-bit drivers of the installed graphics
 drivers, for a package from [multilib], rather than the first provider
-pacman's --noconfirm takes (NVIDIA's).
+pacman's --noconfirm takes (NVIDIA's). And pacman's look (Color, ILoveCandy,
+VerbosePkgLists), turned on in [options] for pacman and paru.
 
 pacman (-Slq lists $KNOWN) and sudo (runs `install` for real on the
 temporary pacman.conf, records the rest) are stand-ins on a PATH of their
@@ -19,6 +20,16 @@ from unittest import mock
 
 from jupiter import phase3
 
+OPTIONS = """\
+[options]
+#UseSyslog
+#Color
+#NoProgressBar
+CheckSpace
+#VerbosePkgLists
+ParallelDownloads = 5
+
+"""
 SHIPPED = """\
 [core]
 Include = /etc/pacman.d/mirrorlist
@@ -110,6 +121,58 @@ class Multilib(Pacman):
                 calls = self.run_step(["steam"])
                 self.assertEqual(self.conf.read_text(), text)
                 self.assertEqual(calls, [["pacman", "-Slq"]])
+
+
+class Look(Pacman):
+    def look(self) -> list[list[str]]:
+        with mock.patch.dict(os.environ, self.env):
+            phase3._look()
+        return [
+            json.loads(line) for line in self.calls.read_text().splitlines()
+        ]
+
+    def test_turned_on_as_arch_ships_it(self) -> None:
+        self.conf.write_text(OPTIONS + SHIPPED)
+        calls = self.look()
+        self.assertEqual(
+            self.conf.read_text(),
+            OPTIONS.replace("#Color\n", "Color\nILoveCandy\n").replace(
+                "#VerbosePkgLists", "VerbosePkgLists"
+            )
+            + SHIPPED,
+        )
+        self.assertEqual(Path(f"{self.conf}~").read_text(), OPTIONS + SHIPPED)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:4], ["sudo", "install", "-b", "-m"])
+
+    def test_left_alone_once_on(self) -> None:
+        self.conf.write_text(OPTIONS + SHIPPED)
+        self.look()
+        looked = self.conf.read_text()
+        self.calls.write_text("")
+        self.assertEqual(self.look(), [])
+        self.assertEqual(self.conf.read_text(), looked)
+
+    def test_an_option_on_elsewhere_is_not_repeated(self) -> None:
+        text = "[options]\nILoveCandy\nColor\n\n" + SHIPPED
+        self.conf.write_text(text)
+        self.look()
+        self.assertEqual(
+            self.conf.read_text(),
+            "[options]\nILoveCandy\nVerbosePkgLists\nColor\n\n" + SHIPPED,
+        )
+
+    def test_only_options_is_changed(self) -> None:
+        # A repository's commented-out lines are not pacman's options.
+        text = "[options]\n\n[core]\n#Color\n"
+        self.assertEqual(
+            phase3._with_look(text),
+            "[options]\nColor\nILoveCandy\nVerbosePkgLists\n\n[core]\n#Color\n",
+        )
+
+    def test_a_file_without_options_is_left_alone(self) -> None:
+        self.assertEqual(self.look(), [])
+        self.assertEqual(self.conf.read_text(), SHIPPED)
 
 
 class Lib32Drivers(Pacman):

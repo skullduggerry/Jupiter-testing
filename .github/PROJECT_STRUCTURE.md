@@ -155,11 +155,13 @@ What the security suites hold the code to, and where:
   but the media keys', and the tablet's pad, which goes around Hyprland,
   presses nothing. (`test_lock_screen.py`, `qml/Lock*Test.qml`,
   `qml/TabletLockTest.qml`)
-- **Login screen**: no attempt without a password, except Enter on an empty
-  field where greeter-env.py found a reader, which answers the password's
-  question with nothing; only that empty answer reaches pam_fprintd, whose
-  success alone ends the stack and whose failure ends the login uncounted;
-  a typed password never waits on the reader; without finger-asked the
+- **Login screen**: no attempt without a password, except where
+  greeter-env.py found a reader the one the greeter begins as it opens and
+  Enter on an empty field, which answer the password's question with
+  nothing; only that empty answer reaches pam_fprintd, whose success alone
+  ends the stack and whose failure ends the login uncounted; a typed
+  password never reaches the reader, and one entered while it scans goes
+  after it, as a login of its own; without finger-asked the
   password works, without pam_fprintd an empty answer fails; a wrong one
   starts nothing, PAM's words are shown, a question waits for its answer and another
   user ends it, only a listed session starts, as its argv; only people with a

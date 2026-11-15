@@ -11,6 +11,13 @@ scenario (a fixture's greetd.json), by user name:
                {"info": "The account is locked."}, {"fail": true}],
      "dave":  [{"refuse": "dave may not log in here"}]}
 
+A step with "after" is given that many seconds late, as pam_fprintd keeps
+greetd until the reader is done:
+
+     "dana":  [{"secret": "Password:", "answer": ""},
+               {"info": "Place your finger on the fingerprint reader"},
+               {"after": 1, "fail": true}]
+
 A wrong answer, or a user the scenario does not know, ends in an auth_error,
 as PAM ends one: an unknown user is asked for a password all the same. A
 "refuse" step answers create_session itself with an error, as greetd does
@@ -26,6 +33,7 @@ import json
 import socket
 import struct
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -110,6 +118,7 @@ class Greetd:
         if not steps:
             return {"type": "success"}
         step = steps[0]
+        time.sleep(step.get("after", 0))
         if step.get("fail"):
             steps.clear()
             return failure("authentication failed")

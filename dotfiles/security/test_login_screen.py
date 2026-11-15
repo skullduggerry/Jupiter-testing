@@ -196,7 +196,7 @@ class Stacks(unittest.TestCase):
                     "default=die]",
                     "pam_fprintd.so",
                     "max-tries=3",
-                    "timeout=10",
+                    "timeout=5",
                 ],
                 ["auth", "include", "system-local-login"],
                 ["-auth", "optional", "pam_gnome_keyring.so"],
@@ -289,7 +289,7 @@ class Conversations(unittest.TestCase):
     def stack(self, finger_asked: Path, reader: str = "") -> None:
         reader = reader or f"pam_exec.so quiet stdout {self.folder}/reader"
         text = (DOTFILES / "etc/pam.d/greetd").read_text()
-        text = text.replace("pam_fprintd.so max-tries=3 timeout=10", reader)
+        text = text.replace("pam_fprintd.so max-tries=3 timeout=5", reader)
         text = text.replace("/etc/greetd/finger-asked", str(finger_asked))
         (self.stacks / "greetd").write_text(text)
 

@@ -3,12 +3,14 @@ import Quickshell
 import Quickshell.Io
 import "../greeter"
 
-// A machine with a fingerprint reader (fixtures/finger/): Enter on an empty
-// field answers the password's question with nothing, which etc/pam.d/greetd
-// sends to the reader; what the reader says is shown; a typed password still
+// A machine with a fingerprint reader (fixtures/finger/): the greeter asks
+// the first user (dana) for a finger as it opens, by answering the
+// password's question with nothing, which etc/pam.d/greetd sends to the
+// reader, and says nothing when that times out. Enter on an empty field asks
+// again; while the reader has greetd, a password entered goes after it, as a
+// login of its own; what the reader says is shown; a typed password still
 // goes as the password; someone with no finger enrolled is told no password
-// was entered. The
-// login a finger finishes is GreeterFingerLoginTest's.
+// was entered. The login a finger finishes is GreeterFingerLoginTest's.
 TestCase {
     readonly property string secret: Quickshell.env("QML_SECRET")
     readonly property FileView log: FileView {
@@ -20,6 +22,10 @@ TestCase {
     function requests(): var {
         log.reload();
         return log.text().split("\n").filter(line => line !== "").map(line => JSON.parse(line));
+    }
+
+    function created(): int {
+        return requests().filter(request => request.type === "create_session").length;
     }
 
     function thisLogin(): var {
@@ -35,14 +41,53 @@ TestCase {
     }
 
     function settled(): var {
-        return tryVerify(() => !GreeterService.busy, 5000, "greetd answers");
+        return tryVerify(() => !GreeterService.busy && !GreeterService.scanning, 5000, "greetd answers");
+    }
+
+    // First: the scan the greeter begins as it opens, before anything else.
+    function test_aFingerIsAskedForAsItOpens() {
+        ignoreWarning("Received unexpected greetd response");
+        return tryVerify(() => GreeterService.scanning, 5000, "the greeter scans by itself").then(() => {
+            verify(GreeterService.fingerprint, "greeter-env.py found a reader");
+            compare(GreeterService.username, "dana");
+            compare(GreeterService.scanPrompt, "Touch the reader, or type the password");
+            verify(!GreeterService.busy, "the field takes a password meanwhile");
+            return settled();
+        }).then(() => {
+            const login = thisLogin();
+            compare(created(), 1);
+            compare(login[0].username, "dana");
+            compare(login[1].response, "", "the password's question answered with nothing");
+            compare(GreeterService.errorText, "", "no finger in time is no error");
+            compare(GreeterService.promptText, "Password, or Enter for fingerprint");
+        });
+    }
+
+    function test_aPasswordEnteredWhileItScansGoesAfter() {
+        ignoreWarning("Received unexpected greetd response");
+        let before = 0;
+        return settled().then(() => {
+            before = created() + 1;
+            enter("dana", "");
+            verify(GreeterService.scanning);
+            // Its answer, and the reader's message acknowledged, which greetd
+            // answers once the reader is done.
+            return tryVerify(() => created() === before && thisLogin().length >= 3, 5000, "the reader has greetd");
+        }).then(() => {
+            compare(thisLogin()[1].response, "");
+            enter("dana", "not the password");
+            verify(GreeterService.busy, "the password waits for the reader");
+            compare(created(), before, "nothing more until the reader is done");
+            return tryVerify(() => created() > before, 5000, "a login of its own").then(() => settled());
+        }).then(() => {
+            compare(thisLogin()[1].response, "not the password");
+            compare(GreeterService.errorText, "Incorrect password");
+        });
     }
 
     function test_aFingerThatDoesNotMatch() {
         ignoreWarning("Received unexpected greetd response");
-        return tryVerify(() => GreeterService.ready, 5000).then(() => {
-            verify(GreeterService.fingerprint, "greeter-env.py found a reader");
-            compare(GreeterService.promptText, "Password, or Enter for fingerprint");
+        return settled().then(() => {
             enter("frank", "");
             return settled();
         }).then(() => {
@@ -58,7 +103,7 @@ TestCase {
 
     function test_noFingerEnrolledIsNoPasswordEntered() {
         ignoreWarning("Received unexpected greetd response");
-        return tryVerify(() => GreeterService.ready, 5000).then(() => {
+        return settled().then(() => {
             enter("gina", "");
             return settled();
         }).then(() => {
@@ -69,7 +114,7 @@ TestCase {
 
     function test_aTypedPasswordIsThePasswordStill() {
         ignoreWarning("Received unexpected greetd response");
-        return tryVerify(() => GreeterService.ready, 5000).then(() => {
+        return settled().then(() => {
             enter("erin", "not the password");
             return settled();
         }).then(() => {

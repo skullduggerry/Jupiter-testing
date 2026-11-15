@@ -1,4 +1,17 @@
 {
+    "dana": [
+        {
+            "secret": "Password:",
+            "answer": ""
+        },
+        {
+            "info": "Place your finger on the fingerprint reader"
+        },
+        {
+            "after": 1,
+            "fail": true
+        }
+    ],
     "erin": [
         {
             "secret": "Password:",

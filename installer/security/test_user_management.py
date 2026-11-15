@@ -227,7 +227,7 @@ class Sources(unittest.TestCase):
 
         self.assertEqual(
             phase4.FINGERPRINT.split(),
-            # The greetd stack's limits: the password after 3 tries or 10 s.
+            # The password after 3 tries or 10 s.
             [
                 "auth",
                 "sufficient",
