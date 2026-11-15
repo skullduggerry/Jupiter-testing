@@ -1,17 +1,17 @@
 # Jupiter-testing
 
-The linters and tests of [Jupiter-dotfiles](https://codeberg.org/skullduggery/Jupiter-dotfiles) and [Jupiter-installer](https://codeberg.org/skullduggery/Jupiter-installer), and the one command that runs them for any of the three repos.
+The linters and tests of [Jupiter-dotfiles](https://github.com/skullduggerry/Jupiter-dotfiles) and [Jupiter-installer](https://github.com/skullduggerry/Jupiter-installer), and the one command that runs them for any of the three repos.
 
-Part of Jupiter: [Jupiter-installer](https://codeberg.org/skullduggery/Jupiter-installer) sets up [Jupiter-dotfiles](https://codeberg.org/skullduggery/Jupiter-dotfiles), and this repo checks both, and itself.
+Part of Jupiter: [Jupiter-installer](https://github.com/skullduggerry/Jupiter-installer) sets up [Jupiter-dotfiles](https://github.com/skullduggerry/Jupiter-dotfiles), and this repo checks both, and itself.
 
 ## Installing
 
 Clone the three repos next to each other:
 
 ```bash
-git clone https://codeberg.org/skullduggery/Jupiter-dotfiles.git
-git clone https://codeberg.org/skullduggery/Jupiter-installer.git
-git clone https://codeberg.org/skullduggery/Jupiter-testing.git
+git clone https://github.com/skullduggerry/Jupiter-dotfiles.git
+git clone https://github.com/skullduggerry/Jupiter-installer.git
+git clone https://github.com/skullduggerry/Jupiter-testing.git
 ```
 
 or point `JUPITER_DOTFILES` and `JUPITER_INSTALLER` at wherever they are. The tools are in Jupiter-installer's `packages/pacman.txt`, which its phase 3 installs; a missing one is named with its package.
