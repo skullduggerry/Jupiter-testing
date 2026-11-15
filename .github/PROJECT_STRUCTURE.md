@@ -161,7 +161,9 @@ What the security suites hold the code to, and where:
   nothing; only that empty answer reaches pam_fprintd, whose success alone
   ends the stack and whose failure ends the login uncounted; a typed
   password never reaches the reader, and one entered while it scans goes
-  after it, as a login of its own; without finger-asked the
+  after it, as a login of its own; on an encrypted disk (disk-encrypted)
+  it never reaches gnome-keyring, which would encrypt the plain login
+  keyring with it; without finger-asked the
   password works, without pam_fprintd an empty answer fails; a wrong one
   starts nothing, PAM's words are shown, a question waits for its answer and another
   user ends it, only a listed session starts, as its argv; only people with a

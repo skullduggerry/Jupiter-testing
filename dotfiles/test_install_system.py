@@ -78,6 +78,8 @@ class InstallSystem(unittest.TestCase):
         for name, mode in (
             ("scripts/install-greeter.sh", "0o755"),
             ("etc/greetd/config.toml", "0o644"),
+            ("etc/greetd/finger-asked", "0o755"),
+            ("etc/greetd/disk-encrypted", "0o755"),
             ("etc/pam.d/greetd", "0o644"),
             ("etc/pam.d/greetd-greeter", "0o644"),
         ):

@@ -4,16 +4,17 @@ own dialog with nothing of the password passing through the installer, and
 never one written over or deleted; on an unencrypted one, nothing made and
 nothing re-keyed.
 
-The dialog needs a desktop, so here gdbus is a stand-in that answers as
-gnome-keyring does: the prompt's path, then Completed once the "dialog" was
-answered (the keyring rewritten unencrypted) or dismissed. The real
-gnome-keyring-daemon, on a session bus of its own in a throwaway home, shows
-that the call exists and hands out a prompt (its runtime folder short: the
-control socket's path must stay under 108 bytes), once it owns its name on
-the bus, which `--unlock` does not wait for.
+The dialog needs a desktop, so the flow's tests stand in for it: answered
+(the keyring rewritten unencrypted, as an empty new password does) or
+dismissed. The real gnome-keyring-daemon, on a session bus of its own in a
+throwaway home with no display, takes the dialog's calls as keyring.py makes
+them, over one connection: the prompt it hands out is shown, fails for want
+of a display, and the daemon lives on, as it did not when a second gdbus
+showed the prompt (its runtime folder short: the control socket's path must
+stay under 108 bytes), once it owns its name on the bus, which `--unlock`
+does not wait for.
 """
 
-import json
 import os
 import shutil
 import subprocess
@@ -25,35 +26,11 @@ from unittest import mock
 
 from jupiter import keyring, tpm
 
-from harness import SECRET, environment, executable
+from harness import SECRET, environment
 
 NEEDED = ("gnome-keyring-daemon", "dbus-run-session", "gdbus")
 MISSING = [name for name in NEEDED if not shutil.which(name)]
-PROMPT_PATH = "/org/freedesktop/secrets/prompt/p1"
-REAL_POPEN = subprocess.Popen
-# gdbus as gnome-keyring answers it. Prompt "shows the dialog": with ANSWER
-# empty it rewrites the keyring unencrypted, as an empty new password does;
-# then the monitor sees Completed, dismissed or not.
-GDBUS = f"""#!{sys.executable}
-import json, os, sys, time
-args = sys.argv[1:]
-with open(os.environ["CALLS"], "a") as calls:
-    calls.write(json.dumps(args) + "\\n")
-answered = os.path.join(os.environ["WORLD"], "answered")
-if args[0] == "monitor":
-    while not os.path.exists(answered):
-        time.sleep(0.02)
-    dismissed = "true" if os.environ["ANSWER"] == "cancel" else "false"
-    print(f"{PROMPT_PATH}: org.freedesktop.Secret.Prompt.Completed ({{dismissed}}, <''>)", flush=True)
-    time.sleep(30)
-elif "ChangeWithPrompt" in " ".join(args):
-    print("(objectpath '{PROMPT_PATH}',)")
-elif "org.freedesktop.Secret.Prompt.Prompt" in args:
-    if os.environ["ANSWER"] == "empty":
-        open(os.environ["LOGIN"], "w").write("[keyring]\\ndisplay-name=Login\\n")
-    open(answered, "w").close()
-    print("()")
-"""
+INSTALLER = Path(keyring.__file__).resolve().parents[1]
 
 
 class Keyrings(unittest.TestCase):
@@ -165,39 +142,36 @@ class ReKeying(Keyrings):
 
     def setUp(self) -> None:
         super().setUp()
-        self.world = self.keyrings.parent
         self.keyrings.mkdir()
         self.login = self.keyrings / "login.keyring"
         self.login.write_bytes(keyring.ENCRYPTED_MAGIC + b"secrets")
-        self.calls = self.world / "calls"
-        executable(self.world / "bin/gdbus", GDBUS)
         self.enterContext(
             mock.patch.dict(
                 os.environ,
                 {
-                    "PATH": f"{self.world / 'bin'}:{os.environ['PATH']}",
-                    "CALLS": str(self.calls),
-                    "WORLD": str(self.world),
-                    "LOGIN": str(self.login),
                     "WAYLAND_DISPLAY": "wayland-1",
                     "DBUS_SESSION_BUS_ADDRESS": "unix:path=/nonexistent",
                 },
             )
         )
 
-    def rekey(self, answer: str, consent: str = "") -> list[list[str]]:
-        os.environ["ANSWER"] = answer
+    def rekey(self, answer: str, consent: str = "") -> int:
+        """keyring.main() with the dialog answered (empty) or dismissed;
+        how often it was shown."""
+
+        def dialog() -> None:
+            if answer == "empty":
+                self.login.write_text("[keyring]\ndisplay-name=Login\n")
+
         with (
-            mock.patch("subprocess.Popen", REAL_POPEN),
+            mock.patch.object(
+                keyring, "_change_password", side_effect=dialog
+            ) as shown,
             mock.patch("builtins.input", return_value=consent),
             mock.patch("getpass.getpass", side_effect=AssertionError),
         ):
             keyring.main()
-        if not self.calls.exists():
-            return []
-        return [
-            json.loads(line) for line in self.calls.read_text().splitlines()
-        ]
+        return shown.call_count
 
     def copies(self) -> list[str]:
         return sorted(
@@ -209,7 +183,7 @@ class ReKeying(Keyrings):
     def test_the_dialog_with_an_empty_password_leaves_it_unencrypted(
         self,
     ) -> None:
-        calls = self.rekey("empty")
+        self.assertEqual(self.rekey("empty"), 1)
         self.assertTrue(self.login.read_text().startswith("[keyring]"))
         [copy] = self.copies()
         self.assertTrue(
@@ -217,42 +191,23 @@ class ReKeying(Keyrings):
             .read_bytes()
             .startswith(keyring.ENCRYPTED_MAGIC)
         )
-        self.assertIn(
-            [
-                "call", "--session", "--dest", "org.freedesktop.secrets",
-                "--object-path", "/org/freedesktop/secrets",
-                "--method", f"{keyring.INTERNAL}.ChangeWithPrompt",
-                "/org/freedesktop/secrets/collection/login",
-            ],
-            calls,
-        )  # fmt: skip
-        self.assertIn(
-            [
-                "call", "--session", "--dest", "org.freedesktop.secrets",
-                "--object-path", PROMPT_PATH,
-                "--method", "org.freedesktop.Secret.Prompt.Prompt", "",
-            ],
-            calls,
-        )  # fmt: skip
 
     def test_a_dismissed_dialog_changes_nothing(self) -> None:
-        self.rekey("cancel")
+        self.assertEqual(self.rekey("cancel"), 1)
         self.assertEqual(
             self.login.read_bytes(), keyring.ENCRYPTED_MAGIC + b"secrets"
         )
         self.assertEqual(self.copies(), [])
 
     def test_asks_first(self) -> None:
-        calls = self.rekey("empty", consent="n")
-        self.assertEqual(calls, [])
+        self.assertEqual(self.rekey("empty", consent="n"), 0)
         self.assertEqual(
             self.login.read_bytes(), keyring.ENCRYPTED_MAGIC + b"secrets"
         )
 
     def test_only_from_the_desktop(self) -> None:
         del os.environ["WAYLAND_DISPLAY"]
-        calls = self.rekey("empty")
-        self.assertEqual(calls, [])
+        self.assertEqual(self.rekey("empty"), 0)
         self.assertEqual(
             self.login.read_bytes(), keyring.ENCRYPTED_MAGIC + b"secrets"
         )
@@ -260,10 +215,11 @@ class ReKeying(Keyrings):
 
 @unittest.skipIf(MISSING, f"needs {', '.join(MISSING)}")
 class GnomeKeyring(unittest.TestCase):
-    """The real daemon: the call keyring.py makes exists, and hands out a
-    prompt object (whose dialog a desktop would show)."""
+    """The real daemon takes the dialog's calls as keyring.py makes them,
+    and lives on: the prompt it hands out is shown over the connection that
+    asked for it (whose dialog a desktop would show, and here cannot)."""
 
-    def test_offers_a_prompt_to_change_the_password(self) -> None:
+    def test_shows_the_dialog_and_lives_on(self) -> None:
         home = Path(self.enterContext(tempfile.TemporaryDirectory(dir="/tmp")))
         session = f"""
 mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
@@ -271,9 +227,11 @@ printf %s "$KEYRING_PASSWORD" | gnome-keyring-daemon --unlock --components=secre
 # --unlock can return before the daemon owns its name; a call then would
 # have D-Bus start a second daemon. Wait for the name, starting nothing.
 gdbus wait --session --timeout 30 org.freedesktop.secrets
-gdbus call --session --dest org.freedesktop.secrets \\
-    --object-path /org/freedesktop/secrets \\
-    --method {keyring.INTERNAL}.ChangeWithPrompt {keyring.LOGIN}
+cd {INSTALLER} && {sys.executable} -c \\
+    'from jupiter import keyring; keyring._change_password(); print("returned")'
+gdbus call --session --dest org.freedesktop.DBus \\
+    --object-path /org/freedesktop/DBus \\
+    --method org.freedesktop.DBus.NameHasOwner org.freedesktop.secrets
 """
         done = subprocess.run(
             ["dbus-run-session", "--", "sh", "-c", session],
@@ -282,14 +240,21 @@ gdbus call --session --dest org.freedesktop.secrets \\
                 XDG_DATA_HOME=str(home / "data"),
                 XDG_RUNTIME_DIR=str(home / "r"),
                 KEYRING_PASSWORD=SECRET,
+                # No display: the dialog would open on the desktop running
+                # the tests, and wait there for an answer.
+                WAYLAND_DISPLAY=None,
+                DISPLAY=None,
             ),
             capture_output=True,
             text=True,
             timeout=60,
             check=True,
         )
-        self.assertRegex(
-            done.stdout, r"objectpath '/org/freedesktop/secrets/prompt/\w+'"
+        self.assertEqual(done.stdout.split(), ["returned", "(true,)"])
+        login = home / "data/keyrings/login.keyring"
+        self.assertTrue(
+            login.read_bytes().startswith(keyring.ENCRYPTED_MAGIC),
+            "no answer, no change",
         )
 
 

@@ -199,6 +199,14 @@ class Stacks(unittest.TestCase):
                     "timeout=5",
                 ],
                 ["auth", "include", "system-local-login"],
+                [
+                    "auth",
+                    "[success=1",
+                    "default=ignore]",
+                    "pam_exec.so",
+                    "quiet",
+                    "/etc/greetd/disk-encrypted",
+                ],
                 ["-auth", "optional", "pam_gnome_keyring.so"],
                 ["account", "include", "system-local-login"],
                 ["session", "include", "system-local-login"],
@@ -220,7 +228,8 @@ class Stacks(unittest.TestCase):
 
     def test_nothing_lets_anyone_in(self) -> None:
         for name in ("greetd", "greetd-greeter"):
-            for rule in self.rules(name):
+            rules = self.rules(name)
+            for index, rule in enumerate(rules):
                 with self.subTest(stack=name, rule=" ".join(rule)):
                     self.assertNotIn(rule[1], ("sufficient",))
                     self.assertNotIn(
@@ -229,12 +238,30 @@ class Stacks(unittest.TestCase):
                     if rule[1] == "optional":
                         self.assertTrue(rule[0].startswith("-"), "may fail")
                     # Only the reader may end the stack early; the empty
-                    # answer's check may only skip the reader or not.
-                    if "pam_exec.so" in rule:
+                    # answer's check may only skip the reader or not, and
+                    # the disk's only gnome-keyring's password line, last.
+                    if "pam_exec.so" in rule and "expose_authtok" in rule:
                         self.assertEqual(
                             rule[1:3], ["[success=ok", "default=1]"]
                         )
                         self.assertEqual(rule[-1], "/etc/greetd/finger-asked")
+                    elif "pam_exec.so" in rule:
+                        self.assertEqual(
+                            rule[1:3], ["[success=1", "default=ignore]"]
+                        )
+                        self.assertEqual(
+                            rule[-1], "/etc/greetd/disk-encrypted"
+                        )
+                        self.assertEqual(
+                            rules[index + 1],
+                            ["-auth", "optional", "pam_gnome_keyring.so"],
+                        )
+                        self.assertFalse(
+                            any(
+                                r[0] in ("auth", "-auth")
+                                for r in rules[index + 2 :]
+                            )
+                        )
                     if any("done" in word for word in rule):
                         self.assertEqual(rule[3], "pam_fprintd.so")
                         self.assertEqual(rule[2], "default=die]")
@@ -252,6 +279,16 @@ PASSWORD = """#!/bin/sh
 read -r password
 [ "$password" = "{secret}" ]
 """
+# A stand-in disk-encrypted: / is on LUKS once the test says so (encrypted).
+DISK = """#!/bin/sh
+[ -e "{folder}/encrypted" ]
+"""
+# A stand-in pam_gnome_keyring's password line: notes whether it was given a
+# password (given), never the password itself.
+KEYRING = """#!/bin/sh
+[ -n "$(tr -d '\\000' | head -c 1)" ] && echo given >>"{folder}/keyring-given"
+exit 0
+"""
 # system-local-login as the system's ends: the password checked, failing as a
 # wrong one does (and as pam_faillock counts it, noted in failures).
 LOCAL_LOGIN = """auth [success=1 default=ignore] pam_exec.so expose_authtok quiet {folder}/password
@@ -267,7 +304,8 @@ class Conversations(unittest.TestCase):
     """etc/pam.d/greetd as greetd runs it, in harness/pam.py's sandbox: the
     password's question once, an empty answer to the reader alone. The
     reader is a stand-in in place of pam_fprintd, finger-asked the repo's,
-    system-local-login a password check."""
+    system-local-login a password check, disk-encrypted and gnome-keyring's
+    password line stand-ins too."""
 
     def setUp(self) -> None:
         self.folder = temporary(self)
@@ -277,6 +315,8 @@ class Conversations(unittest.TestCase):
             "reader": READER.format(folder=self.folder),
             "password": PASSWORD.format(secret=SECRET),
             "count-failure": f'#!/bin/sh\necho failed >>"{self.folder}/failures"\nexit 1\n',
+            "disk": DISK.format(folder=self.folder),
+            "keyring": KEYRING.format(folder=self.folder),
         }
         for name, text in scripts.items():
             (self.folder / name).write_text(text)
@@ -291,7 +331,19 @@ class Conversations(unittest.TestCase):
         text = (DOTFILES / "etc/pam.d/greetd").read_text()
         text = text.replace("pam_fprintd.so max-tries=3 timeout=5", reader)
         text = text.replace("/etc/greetd/finger-asked", str(finger_asked))
+        text = text.replace(
+            "/etc/greetd/disk-encrypted", f"{self.folder}/disk"
+        )
+        keyring = "optional     pam_gnome_keyring.so\n"
+        self.assertEqual(text.count(keyring), 1, "the password's line")
+        text = text.replace(
+            keyring,
+            f"optional pam_exec.so quiet expose_authtok {self.folder}/keyring\n",
+        )
         (self.stacks / "greetd").write_text(text)
+
+    def keyring_given(self) -> bool:
+        return (self.folder / "keyring-given").exists()
 
     def login(self, *answers: str) -> dict[str, Any]:
         done = subprocess.run(
@@ -353,12 +405,68 @@ class Conversations(unittest.TestCase):
         self.assertNotEqual(result["authenticate"], 0)
         self.assertEqual(self.login(SECRET)["authenticate"], 0)
 
+    def test_on_an_encrypted_disk_gnome_keyring_gets_no_password(self) -> None:
+        # It would encrypt the plain login keyring with it, which no finger
+        # opens after.
+        (self.folder / "encrypted").touch()
+        self.assertEqual(self.login(SECRET)["authenticate"], 0)
+        self.assertFalse(self.keyring_given())
+
+    def test_on_an_unencrypted_disk_it_gets_the_password(self) -> None:
+        self.assertEqual(self.login(SECRET)["authenticate"], 0)
+        self.assertTrue(self.keyring_given(), "the keyring opens with it")
+
+    def test_a_finger_gives_it_nothing(self) -> None:
+        (self.folder / "touched").touch()
+        self.assertEqual(self.login("")["authenticate"], 0)
+        self.assertFalse(self.keyring_given())
+
     def test_without_finger_asked_the_password_still_works(self) -> None:
         self.stack(self.folder / "missing")
         (self.folder / "touched").touch()
         self.assertEqual(self.login(SECRET)["authenticate"], 0)
         self.assertNotEqual(self.login("")["authenticate"], 0)
         self.assertEqual(self.reads(), 0)
+
+
+@unittest.skipUnless(
+    shutil.which("findmnt") and shutil.which("lsblk"), "util-linux"
+)
+class DiskEncrypted(unittest.TestCase):
+    """etc/greetd/disk-encrypted on this machine: whether / is on LUKS, as
+    the installer's tpm.root_volume() reads it."""
+
+    def test_tells_this_machines_root(self) -> None:
+        source = (
+            subprocess.run(
+                ["findmnt", "--noheadings", "-o", "SOURCE", "/"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            .stdout.strip()
+            .split("[", 1)[0]
+        )
+        luks = source.startswith("/dev/mapper/") and "crypto_LUKS" in (
+            subprocess.run(
+                [
+                    "lsblk",
+                    "--noheadings",
+                    "--inverse",
+                    "--list",
+                    "-o",
+                    "FSTYPE",
+                    source,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout.split()
+        )
+        done = subprocess.run(
+            [str(DOTFILES / "etc/greetd/disk-encrypted")], check=False
+        )
+        self.assertEqual(done.returncode == 0, luks)
 
 
 def install(
