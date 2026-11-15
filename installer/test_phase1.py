@@ -805,10 +805,9 @@ class SignedBoot(Encrypting):
 
     def test_builds_a_unified_kernel_image_only(self) -> None:
         calls = self.install()
-        root = "0a1b2c3d-1111-2222-3333-444455556666"  # findmnt's
         self.assertEqual(
             (self.mnt / "etc/kernel/cmdline").read_text(),
-            f"root=UUID={root} rootflags=subvol=@ rw zswap.enabled=0"
+            "root=/dev/mapper/root rootflags=subvol=@ rw zswap.enabled=0"
             " quiet loglevel=3\n",
         )
         preset = (self.mnt / "etc/mkinitcpio.d/linux.preset").read_text()

@@ -82,6 +82,21 @@ class KeyFiles(Encrypting):
         self.assertEqual((keys / "data.key").read_bytes(), b"old")
 
 
+class EncryptedRoot(Encrypting):
+    def test_is_named_by_its_opened_volume_never_by_a_uuid(self) -> None:
+        """A file system's UUID is no secret (the image on the ESP names
+        it) and a disk without encryption can carry it: mounted in the
+        root's place with no volume opened, PCR 15 is still zero and the
+        TPM gives the key out. /dev/mapper/root only systemd-cryptsetup
+        makes."""
+        self.install()
+        line = (self.mnt / "etc/kernel/cmdline").read_text()
+        self.assertIn("root=/dev/mapper/root ", line)
+        for name in ("UUID=", "LABEL=", "PARTUUID=", "PARTLABEL=", "/dev/vd"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, line)
+
+
 class DisksNotChosen(Encrypting):
     def test_are_never_named_by_a_command(self) -> None:
         calls = self.install()

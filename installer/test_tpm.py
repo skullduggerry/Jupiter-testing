@@ -3,8 +3,8 @@ volume to the TPM, its recovery key and header backup, and what it says
 where something is missing.
 
 The machine is a folder: its TPM (tpm_version_major, PCR 7), its EFI
-variables (Secure Boot's state, systemd-stub's mark), /etc/crypttab and the
-measurement log. Each command (sudo, findmnt, lsblk, cryptsetup,
+variables (Secure Boot's state, systemd-stub's mark), /etc/crypttab, the
+image's command line (/etc/kernel/cmdline) and the measurement log. Each command (sudo, findmnt, lsblk, cryptsetup,
 systemd-cryptenroll, sbctl, mkinitcpio, install, chown) is a stand-in that
 records its argv and stdin and answers from the LUKS header kept in
 `header.json`, which systemd-cryptenroll's stand-in writes its slots into, as
@@ -29,6 +29,10 @@ VOLUME_KEY_ID = (
     "b7c790dc40a5191f93aa2a089926c9378f54441a6d08145890e7598aaec280a6"
 )
 CRYPTTAB = f"root UUID={LUKS_UUID} none discard,x-initrd.attach\n"
+OPTIONS = "rootflags=subvol=@ rw zswap.enabled=0 quiet loglevel=3"
+CMDLINE = f"root=/dev/mapper/root {OPTIONS}\n"
+# As phase 1 wrote it before: by the file system's UUID.
+OLD_CMDLINE = f"root=UUID=0a1b2c3d-1111-2222-3333-444455556666 {OPTIONS}\n"
 GLOBAL = secureboot.GLOBAL
 STAND_IN = f"""#!{sys.executable}
 import json, os, sys
@@ -124,6 +128,8 @@ class Machine(unittest.TestCase):
         # Root's alone on a real system (0600, from systemd's package): the
         # step, which runs as the user, must read it through sudo.
         self.crypttab.chmod(0o000)
+        self.cmdline = tmp / "cmdline"
+        self.cmdline.write_text(CMDLINE)
         self.measured = tmp / "tpm2-measure.log"
         self.measured.write_text(
             "\x1e"
@@ -144,6 +150,7 @@ class Machine(unittest.TestCase):
             "TPM": self.tpm,
             "STUB_INFO": self.stub,
             "CRYPTTAB": self.crypttab,
+            "CMDLINE": self.cmdline,
             "MEASURE_LOG": self.measured,
         }.items():
             self.enterContext(mock.patch.object(tpm, name, value))
@@ -295,6 +302,69 @@ class Binding(Machine):
     def test_skips_the_header_backup_on_an_empty_answer(self) -> None:
         calls = self.enroll()
         self.assertFalse([c for c in calls if "luksHeaderBackup" in c])
+
+
+class NamingTheRoot(Machine):
+    """An install whose image names the root by its file system's UUID, as
+    phase 1 wrote it before: named by its opened volume instead."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.enroll()  # bound already: only the command line is left
+        self.printed.reset_mock()
+        self.cmdline.write_text(OLD_CMDLINE)
+
+    def test_names_the_opened_volume_and_builds_the_image_again(self) -> None:
+        calls = self.enroll()
+        self.assertEqual(self.cmdline.read_text(), CMDLINE)
+        self.assertEqual(self.cmdline.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(
+            (self.world / "cmdline~").read_text(), OLD_CMDLINE, "kept"
+        )
+        self.assertEqual(
+            [c for c in calls if c[0] == "mkinitcpio"],
+            [["mkinitcpio", "--allpresets"]],
+        )
+        self.assertIn("now names the root as /dev/mapper/root", self.said())
+
+    def test_leaves_the_tpm_slot_and_the_header_as_they_are(self) -> None:
+        # PCR 7 does not cover the command line: nothing to enrol again,
+        # and no header backup to offer (no input is asked for).
+        self.answers = []
+        calls = self.enroll()
+        self.assertFalse([c for c in calls if c[0] == "systemd-cryptenroll"])
+        self.assertNotIn(tpm.BACKUP_HELP, self.said())
+
+    def test_keeps_the_rest_of_the_line(self) -> None:
+        line = f"quiet {OLD_CMDLINE.strip()} console=ttyS0 myroot=UUID=x\n"
+        self.cmdline.write_text(line)
+        self.enroll()
+        self.assertEqual(
+            self.cmdline.read_text(),
+            f"quiet {CMDLINE.strip()} console=ttyS0 myroot=UUID=x\n",
+        )
+
+    def test_run_again_changes_nothing(self) -> None:
+        self.enroll()
+        calls = self.enroll()
+        self.assertFalse([c for c in calls if c[0] == "mkinitcpio"])
+        self.assertIn("nothing to change", self.said())
+
+    def test_a_failed_image_build_is_built_again_by_a_rerun(self) -> None:
+        os.environ["MKINITCPIO_FAILS"] = "1"
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.enroll()
+        self.assertEqual(self.cmdline.read_text(), OLD_CMDLINE, "put back")
+        del os.environ["MKINITCPIO_FAILS"]
+        calls = self.enroll()
+        self.assertIn(["mkinitcpio", "--allpresets"], calls)
+        self.assertEqual(self.cmdline.read_text(), CMDLINE)
+
+    def test_no_unified_kernel_image_is_left_alone(self) -> None:
+        self.cmdline.unlink()
+        calls = self.enroll()
+        self.assertFalse([c for c in calls if c[0] == "mkinitcpio"])
+        self.assertFalse(self.cmdline.exists())
 
 
 class Policy(unittest.TestCase):

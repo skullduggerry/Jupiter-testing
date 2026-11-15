@@ -351,6 +351,49 @@ class Tpm(Enrolling):
         self.assertNotRegex(console, r"Give root password|# $")
         machine.kill()
 
+    def test_a_disk_without_encryption_in_its_place_gets_nothing(
+        self,
+    ) -> None:  # (d)
+        machine, _ = self.enrolled()
+        self.assertIn(
+            "root=/dev/mapper/root ", machine.sh("cat /proc/cmdline")
+        )
+        uuid = machine.sh("findmnt -no UUID /").strip()
+        machine.power_off()
+        # An attacker's file system where the volume was: no encryption, the
+        # root's own UUID, and a root of theirs that says it runs. No volume
+        # is opened for it, so PCR 15 would still be zero in it, and the TPM
+        # would give it the key (they kept the LUKS header).
+        machine.secure_boot_firmware = False
+        machine.boot(live=True)
+        machine.login("root")
+        root = "/mnt/@"
+        machine.sh(
+            f"mkfs.btrfs -q -f -U {uuid} /dev/vda2 && mount /dev/vda2 /mnt && "
+            f"btrfs subvolume create {root} && "
+            f"mkdir -p {root}/usr/bin {root}/usr/lib {root}/etc {root}/dev "
+            f"{root}/proc {root}/sys {root}/run && "
+            f"ln -s usr/bin {root}/bin && ln -s usr/bin {root}/sbin && "
+            f"echo ID=attacker > {root}/usr/lib/os-release && "
+            f"cp /usr/lib/initcpio/busybox {root}/usr/bin/busybox && "
+            f"ln -s busybox {root}/usr/bin/sh && "
+            # Printed as evil:42, which the command itself does not show.
+            "printf '#!/bin/sh\\nwhile :; do echo evil:$((6*7)) "
+            f">/dev/console; busybox sleep 1; done\\n' >{root}/usr/bin/init && "
+            f"chmod +x {root}/usr/bin/init && umount /mnt",
+            timeout=300,
+        )
+        machine.power_off()
+        machine.secure_boot_firmware = True
+        machine.boot()
+        # Named by its UUID, the root would be theirs once the volume's 90 s
+        # are over; named by its volume, there is no root, and the boot stops.
+        with self.assertRaises(TimeoutError):
+            machine.expect(r"evil:42|login: $", 240)
+        # The initramfs gives no shell: root is locked there.
+        self.assertNotRegex(machine.console(), r"Give root password|# $")
+        machine.kill()
+
     def test_a_kernel_update_is_signed_and_still_unlocks(self) -> None:  # (e)
         machine, _ = self.enrolled()
         self.reboot(machine)

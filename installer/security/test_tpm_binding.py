@@ -10,7 +10,13 @@ from pathlib import Path
 
 from jupiter import tpm
 
-from installer.test_tpm import CRYPTTAB, RECOVERY_KEY, Machine
+from installer.test_tpm import (
+    CMDLINE,
+    CRYPTTAB,
+    OLD_CMDLINE,
+    RECOVERY_KEY,
+    Machine,
+)
 
 
 class NoBindingWithout(Machine):
@@ -76,6 +82,39 @@ class NoBindingWithout(Machine):
         stand_in.write_text("#!/bin/sh\necho /dev/vda2[/@]\n")
         self.assertEqual(self.enroll(), [])
         self.assertEqual(self.said(), "")
+
+
+class RootByUuid(Machine):
+    """An image that names the root by its file system's UUID mounts a disk
+    without encryption carrying it, with no volume opened and PCR 15 still
+    zero: the TPM would give that system the key. Never left so, bound or
+    not: a slot bound by an earlier run is as open to it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.cmdline.write_text(OLD_CMDLINE)
+
+    def test_is_renamed_before_the_disk_is_bound(self) -> None:
+        calls = [call[0] for call in self.enroll()]
+        self.assertEqual(self.cmdline.read_text(), CMDLINE)
+        self.assertLess(
+            calls.index("mkinitcpio"), calls.index("systemd-cryptenroll")
+        )
+
+    def test_is_renamed_where_nothing_can_be_bound_now(self) -> None:
+        for name in ("Secure Boot off", "another image booted"):
+            with self.subTest(name):
+                self.cmdline.write_text(OLD_CMDLINE)
+                if name == "Secure Boot off":
+                    self.secure_boot(setup=False, on=False)
+                else:
+                    self.stub.unlink()
+                calls = self.enroll()
+                self.assertEqual(self.cmdline.read_text(), CMDLINE)
+                self.assertIn(["mkinitcpio", "--allpresets"], calls)
+                self.assertFalse(
+                    [c for c in calls if c[0] == "systemd-cryptenroll"]
+                )
 
 
 class Binding(Machine):
