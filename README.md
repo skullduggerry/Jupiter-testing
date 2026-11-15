@@ -42,5 +42,5 @@ Everything runs against stand-ins in temporary folders: nothing on the machine c
 
 ## Documentation
 
-- [Development](https://codeberg.org/skullduggery/Jupiter-dotfiles/wiki/Development) in the wiki shared by the three repos: the checks, the suites, writing a test.
+- [Development](https://github.com/skullduggerry/Jupiter-dotfiles/wiki/Development) in the wiki shared by the three repos: the checks, the suites, writing a test.
 - `.github/`: the harness, the security model and the conventions (`PROJECT_STRUCTURE.md`, and `llm.md` for coding agents).
