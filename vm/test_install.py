@@ -40,9 +40,10 @@ class Booting(unittest.TestCase):
         revision: str | None = None,
     ) -> rig.Machine:
         base = install.installed(name, answers, disks, revision=revision)
-        # The test's own folder, kept after it to read its serial logs from,
-        # and replaced by its next run.
-        folder = install.VMS / self.id().removeprefix("vm.test_install.")
+        # The test's own folder for each machine it uses, kept after it to
+        # read its serial logs from, and replaced by its next run.
+        test = self.id().removeprefix("vm.test_install.")
+        folder = install.VMS / f"{test}-{name}"
         rig.Machine(folder, disks).remove()
         machine = base.clone(folder)
         self.addCleanup(machine.kill)
@@ -373,7 +374,7 @@ class Tpm(Enrolling):
 # What an install leaves that phase 1 decides, UUIDs left out.
 SETTINGS = (
     "cat /etc/mkinitcpio.conf.d/jupiter.conf /boot/loader/loader.conf; "
-    "sed 's/UUID=[0-9a-f-]*/UUID=x/' /etc/fstab /boot/loader/entries/*.conf; "
+    "sed 's/UUID=[0-9A-Fa-f-]*/UUID=x/' /etc/fstab /boot/loader/entries/*.conf; "
     "lsblk -lno NAME,FSTYPE,TYPE /dev/vda; ls /boot /boot/EFI; "
     "grep -v '^#' /etc/crypttab | grep . ; ls /etc/kernel /etc/mkinitcpio.d; "
     "cat /etc/vconsole.conf /etc/locale.conf /etc/hostname; "
@@ -398,6 +399,7 @@ class Declined(Booting):
             "declined", install.Answers(encrypt=False), disks
         )
         before = self.machine("before", install.Answers(), disks, BEFORE)
+        self.maxDiff = None
         self.assertEqual(self.settings(declined), self.settings(before))
 
 
