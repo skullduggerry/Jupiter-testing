@@ -1,0 +1,35 @@
+# Pushes every branch and tag to Codeberg after each push here, so the
+# Codeberg repo stays a backup even of commits made in a cloud session.
+# Needs the CODEBERG_TOKEN secret: a Codeberg access token with repository
+# write scope. Only heads and tags go across, because GitHub's refs/pull/*
+# would be refused by Forgejo.
+name: Mirror to Codeberg
+
+on:
+  push:
+  delete:
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-codeberg
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push branches and tags
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          # The same name on both sides, so this file is the same in every Jupiter repo.
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          git fetch --tags --force --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          # origin/HEAD would arrive on Codeberg as a branch called HEAD.
+          git remote set-head origin -d 2>/dev/null || true
+          git push --force --prune \
+            "https://skullduggery:${CODEBERG_TOKEN}@codeberg.org/skullduggery/${REPO}.git" \
+            '+refs/remotes/origin/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
