@@ -50,7 +50,7 @@ TestCase {
         return tryVerify(() => GreeterService.scanning, 5000, "the greeter scans by itself").then(() => {
             verify(GreeterService.fingerprint, "greeter-env.py found a reader");
             compare(GreeterService.username, "dana");
-            compare(GreeterService.scanPrompt, "Touch the reader, or type the password");
+            compare(GreeterService.promptText, "Password or fingerprint", "as the lock screen's");
             verify(!GreeterService.busy, "the field takes a password meanwhile");
             return settled();
         }).then(() => {
@@ -59,7 +59,7 @@ TestCase {
             compare(login[0].username, "dana");
             compare(login[1].response, "", "the password's question answered with nothing");
             compare(GreeterService.errorText, "", "no finger in time is no error");
-            compare(GreeterService.promptText, "Password, or Enter for fingerprint");
+            compare(GreeterService.promptText, "Password or fingerprint");
         });
     }
 
@@ -96,7 +96,7 @@ TestCase {
             compare(login.slice(0, 4).map(request => request.type).join(" "), "create_session post_auth_message_response post_auth_message_response post_auth_message_response");
             compare(login[1].response, "", "the password's question answered with nothing");
             compare(GreeterService.errorText, "Place your finger on the fingerprint reader\nFailed to match fingerprint");
-            compare(GreeterService.promptText, "Password, or Enter for fingerprint");
+            compare(GreeterService.promptText, "Password or fingerprint");
             verify(!GreeterService.answering);
         });
     }
