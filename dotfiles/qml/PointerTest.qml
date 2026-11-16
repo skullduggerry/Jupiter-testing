@@ -50,13 +50,15 @@ TestCase {
         compare(Pointer.touchpadScroll, Pointer.scrollLeast);
     }
 
-    // Only names spelt as Hyprland spells devices reach the Lua.
+    // Only names spelt as Hyprland spells devices reach the Lua. The speed is
+    // set once the devices are read, not while: a change saves the settings
+    // after a moment, and a slow read must not race that save.
     function test_touchpadsAreFoundByName() {
-        Pointer.setTouchpad(-0.25, 1.5);
         Pointer.refresh();
         return tryVerify(() => Pointer.touchpads.length > 0, 3000, "the devices are read").then(() => {
             compare(Array.from(Pointer.touchpads), ["pixa3854:00-093a:0274-touchpad"]);
-            return tryVerify(() => lua().includes('touchpads = { "pixa3854:00-093a:0274-touchpad" }'), 2000, "the touchpad is kept");
+            Pointer.setTouchpad(-0.25, 1.5);
+            return tryVerify(() => lua().includes('touchpads = { "pixa3854:00-093a:0274-touchpad" }') && lua().includes("touchpadSpeed = -0.25"), 2000, "the touchpad is kept");
         }).then(() => {
             verify(lua().includes("touchpadSpeed = -0.25, touchpadScroll = 1.50"));
             verify(!lua().includes("os.execute"), "a name that breaks out of its string is left out");
