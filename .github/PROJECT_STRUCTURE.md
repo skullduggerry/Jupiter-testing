@@ -12,6 +12,8 @@ write tests: `.github/llm.md`.
 | `dotfiles/security/` | the lock screen, the login screen, the Nextcloud account, text from outside; QML tests in `qml/`, their fixtures in `qml/fixtures/` |
 | `installer/` | Jupiter-installer's tests: the phases against stand-ins |
 | `installer/security/` | who phase 1 makes a user, with which password and rights; root checks, firewall, sources; the disk passphrase, data disks and disks not chosen; the TPM binding; the login keyring; the sudo and polkit stacks with a finger |
+| `nixos/` | Jupiter-nixos' tests: phase 1 against stand-ins (the disks are `harness/disks.py`, shared with `installer/`), phases 2 and 3, the TPM step, `desktop-entries.py`, and the flake's modules evaluated by Nix (`harness/nix.py`) |
+| `nixos/security/` | the passphrase and passwords in phase 1, disks not chosen, key files; the login keyring; the PAM stacks the flake declares (greetd's from the dotfiles, the local login it includes, `login`, sudo and polkit), the finger, the firewall, the pam_exec helpers built and run |
 | `testing/` | this repo's own tooling, each part made to fail: the QML runner, the parallel runner, `lint.sh`, `check.sh`, the VM rig |
 | `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`): the rig (`rig.py`), installing with phases 1 and 2 (`install.py`) and the scenarios (`test_install.py`) |
 | `check.sh` | the one command, which every repo's `check.sh` hands over to: each repo's lint, then the suites |
@@ -20,6 +22,17 @@ write tests: `.github/llm.md`.
 | `pyproject.toml`, `.editorconfig` | ruff, mypy (strict) and coverage for this repo; the tested repos keep their own, which `lint.sh` reads there |
 
 Each test module also runs alone: `python3 -m unittest dotfiles.test_shelf`.
+
+Jupiter-nixos is found at `../Jupiter-nixos` or `JUPITER_NIXOS`, and is one
+of `all` (and of the default outside the repos) only where it is cloned, as
+it is new. Its repo is told from the Arch installer's by its `flake.nix` and
+`jupiter_nixos/`; the Python package has a name of its own so that both
+installers' tests load in one process (`harness/run.py` collects them all).
+`harness/nix.py` evaluates its modules as the flake does, for
+`hosts/example` or settings a test gives, with nixpkgs from
+`JUPITER_NIXPKGS` or Nix's `<nixpkgs>` and lanzaboote's options stood in for;
+nothing is built but the pam_exec helpers, which
+`nixos/security/test_login_stacks.py` runs.
 
 ## Running
 
@@ -210,6 +223,15 @@ What the security suites hold the code to, and where:
 - **sudo and polkit** (installer): with phase 4's finger line first, a
   finger or the password lets you in and nothing else, with or without
   pam_fprintd. (`installer/security/test_finger_stacks.py`)
+- **NixOS** (Jupiter-nixos): no password or passphrase in an argument or a
+  file phase 1 writes (settings.json would reach the world-readable store),
+  passwords on chpasswd's stdin inside the new system; greetd's stacks the
+  dotfiles' line for line, with modules and helpers by store path, every
+  include a stack that exists; the local login they include counted by
+  pam_faillock, never `sufficient`, without keyring or finger; `login` gives
+  gnome-keyring nothing; a finger in sudo and polkit only; KDE Connect's
+  ports from the local networks only; finger-asked asks for a finger on an
+  empty answer only, with no PATH. (`nixos/security/`)
 
 ## Mutations
 

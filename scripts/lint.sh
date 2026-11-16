@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # One repo's formatting and linters, by that repo's own settings.
 #
-#     scripts/lint.sh KIND PATH            KIND is dotfiles, installer or testing
+#     scripts/lint.sh KIND PATH            KIND is dotfiles, installer, nixos or testing
 #     scripts/lint.sh KIND PATH --fix      format, and apply the safe fixes, first
 #     scripts/lint.sh KIND PATH --staged   only the files git has staged
 #
 # check.sh runs this for each repo it checks, then the suites. The
 # tools run inside PATH, so they read its pyproject.toml, .editorconfig and
 # .luarc.json, which editors read too. Formatters: qmlformat, ruff, shfmt and
-# stylua. Linters: qmllint (against Quickshell's types as
+# stylua, and nixfmt for Jupiter-nixos. Linters: qmllint (against Quickshell's types as
 # scripts/quickshell-types.py corrects them), ruff, mypy, shellcheck and, for
 # the dotfiles, lua-language-server and Hyprland's own config check, with the
 # project's rules besides (qmldirs, popup names, glyphs). See "Running" in
@@ -18,11 +18,11 @@ set -uo pipefail
 testing=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 2
 kind=${1-}
 repo=$(realpath -e "${2-}" 2>/dev/null) || {
-    echo "usage: lint.sh dotfiles|installer|testing PATH [--fix] [--staged]" >&2
+    echo "usage: lint.sh dotfiles|installer|nixos|testing PATH [--fix] [--staged]" >&2
     exit 2
 }
 shift 2
-[[ $kind == @(dotfiles|installer|testing) ]] || {
+[[ $kind == @(dotfiles|installer|nixos|testing) ]] || {
     echo "lint.sh: unknown repo kind: $kind" >&2
     exit 2
 }
@@ -32,8 +32,10 @@ cd "$repo" || exit 2
 PATH=/usr/lib/qt6/bin:$PATH
 dotfiles=$(realpath -m "${JUPITER_DOTFILES:-$testing/../Jupiter-dotfiles}")
 installer=$(realpath -m "${JUPITER_INSTALLER:-$testing/../Jupiter-installer}")
+nixos=$(realpath -m "${JUPITER_NIXOS:-$testing/../Jupiter-nixos}")
 [[ $kind == dotfiles ]] && dotfiles=$repo
 [[ $kind == installer ]] && installer=$repo
+[[ $kind == nixos ]] && nixos=$repo
 
 fix=0
 staged=0
@@ -58,6 +60,7 @@ case $kind in
             ["zsh"]=zsh
         )
         ;;
+    nixos) packages+=(["nixfmt"]=nixfmt) ;;
     testing) packages+=(["/usr/lib/qt6/bin/qmlformat"]=qt6-declarative) ;;
 esac
 missing=()
@@ -105,6 +108,7 @@ files() {
 }
 qml=()
 lua=()
+nix=()
 data_spec=('*.json' '*.toml')
 case $kind in
     dotfiles)
@@ -114,6 +118,10 @@ case $kind in
         data_spec+=(':!.config/wallust/templates/*')
         ;;
     installer) mapfile -t shell < <(files '*.sh') ;;
+    nixos)
+        mapfile -t shell < <(files '*.sh')
+        mapfile -t nix < <(files '*.nix')
+        ;;
     testing)
         mapfile -t qml < <(files '*.qml')
         mapfile -t shell < <(files '*.sh' '.githooks/*')
@@ -136,6 +144,7 @@ formatted() {
         *.qml) qmlformat "$1" ;;
         *.py) ruff format --quiet --stdin-filename "$1" - <"$1" ;;
         *.lua) stylua --stdin-filepath "$1" - <"$1" ;;
+        *.nix) nixfmt --filename "$1" <"$1" ;;
         *) shfmt "$1" ;;
     esac
 }
@@ -149,7 +158,7 @@ if ((${#lua[@]})); then
     luals=$!
 fi
 
-section "formatting (qmlformat, ruff, shfmt, stylua)"
+section "formatting (qmlformat, ruff, shfmt, stylua, nixfmt)"
 # Every file through its formatter, as many at once as there are CPUs; then
 # whatever differs is fixed or reported, in order.
 export -f formatted
@@ -157,7 +166,7 @@ export -f formatted
 # still print one empty name.
 names() { (($#)) && printf '%s\0' "$@"; }
 # shellcheck disable=SC2016 # expanded by the bash each part runs in
-names "${qml[@]}" "${python[@]}" "${shell[@]}" "${lua[@]}" |
+names "${qml[@]}" "${python[@]}" "${shell[@]}" "${lua[@]}" "${nix[@]}" |
     xargs -0 -r -P "$jobs" -n 8 bash -c '
         for f; do
             if ! out=$(formatted "$f" 2>/dev/null); then
@@ -178,7 +187,7 @@ while read -r state f; do
         fail "$f is not formatted (run with --fix)"
     fi
 done <"$tmp/formatting"
-passed "$((${#qml[@]} + ${#python[@]} + ${#shell[@]} + ${#lua[@]})) files"
+passed "$((${#qml[@]} + ${#python[@]} + ${#shell[@]} + ${#lua[@]} + ${#nix[@]})) files"
 
 section "whitespace (.editorconfig)"
 # Trailing whitespace, except in Markdown, where two spaces end a line.
@@ -301,9 +310,9 @@ if ((${#python[@]})); then
         done
     fi
     ruff check --quiet --output-format concise "${python[@]}" >"$tmp/out" 2>&1 || failed "ruff"
-    # The tests import the installer, and check its types with theirs.
+    # The tests import the installers, and check their types with theirs.
     mypypath=
-    [[ $kind == testing ]] && mypypath=$installer
+    [[ $kind == testing ]] && mypypath=$installer:$nixos
     MYPYPATH=$mypypath mypy --no-error-summary "${python[@]}" >"$tmp/out" 2>&1 || failed "mypy"
 fi
 passed "${#python[@]} files"

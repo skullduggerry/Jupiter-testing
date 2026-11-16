@@ -325,6 +325,33 @@ class Check(unittest.TestCase):
         _, calls, _ = self.check("lint", str(elsewhere / "."))
         self.assertEqual(calls, [f"lint.sh installer {elsewhere}"])
 
+    def test_jupiter_nixos_where_it_is_cloned(self) -> None:
+        nixos = self.tmp / "Jupiter-nixos"
+        executable(nixos / "jupiter_nixos/__main__.py", "")
+        executable(nixos / "flake.nix", "")
+        git(nixos, "init", "-q")
+        code, calls, output = self.check("check", "all")
+        self.assertEqual(
+            (code, calls),
+            (
+                0,
+                [
+                    *self.everything()[:2],
+                    f"lint.sh nixos {nixos}",
+                    f"lint.sh testing {self.testing}",
+                    "test.sh dotfiles installer nixos testing",
+                ],
+            ),
+        )
+        self.assertIn("passed: dotfiles installer nixos testing", output)
+        # Inside it, or by its path: told from the Arch installer by its
+        # flake and package.
+        self.assertEqual(
+            self.check("lint", cwd=nixos / "jupiter_nixos")[1],
+            [f"lint.sh nixos {nixos}"],
+        )
+        self.assertEqual(self.check("test", "nixos")[1], ["test.sh nixos"])
+
     def test_failures_are_summed_up(self) -> None:
         code, calls, output = self.check("installer", answer=1)
         self.assertEqual(code, 1)

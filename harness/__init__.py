@@ -1,10 +1,11 @@
-"""What the suites share: where the two repos are, helpers loaded by path,
-stand-in commands and throwaway folders.
+"""What the suites share: where the tested repos are, helpers loaded by
+path, stand-in commands and throwaway folders.
 
-The repos are found next to this one (../Jupiter-dotfiles and
-../Jupiter-installer), or wherever JUPITER_DOTFILES and JUPITER_INSTALLER
-point. Nothing here, and no test, changes anything outside a temporary
-folder: every command a helper would reach the system with is a stand-in.
+The repos are found next to this one (../Jupiter-dotfiles,
+../Jupiter-installer and ../Jupiter-nixos), or wherever JUPITER_DOTFILES,
+JUPITER_INSTALLER and JUPITER_NIXOS point. Nothing here, and no test,
+changes anything outside a temporary folder: every command a helper would
+reach the system with is a stand-in.
 """
 
 from __future__ import annotations
@@ -23,6 +24,11 @@ DOTFILES = Path(
 ).resolve()
 INSTALLER = Path(
     os.environ.get("JUPITER_INSTALLER") or TESTING.parent / "Jupiter-installer"
+).resolve()
+# Jupiter-nixos: the NixOS counterpart of the installer, while it is new
+# also a branch of Jupiter-installer checked out there (a worktree).
+NIXOS = Path(
+    os.environ.get("JUPITER_NIXOS") or TESTING.parent / "Jupiter-nixos"
 ).resolve()
 QUICKSHELL = DOTFILES / ".config/quickshell"
 

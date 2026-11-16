@@ -940,6 +940,33 @@ class AsRoot(unittest.TestCase):
             ).read_text(),
         )
 
+    @unittest.skipUnless(Path("/etc/greetd").is_dir(), "needs /etc/greetd")
+    def test_a_stack_the_system_links_is_left_alone(self) -> None:
+        # NixOS links each stack from its store, and Jupiter-nixos declares
+        # greetd's, adapted to it: Arch's would name modules it cannot find
+        # and a system-local-login it lacks, and lock everyone out.
+        greetd = self.root / "etc-greetd"
+        pam = self.root / "etc-pam.d"
+        store = self.root / "store"
+        greetd.mkdir()
+        pam.mkdir()
+        store.mkdir()
+        (store / "greetd").write_text("the system's own\n")
+        (pam / "greetd").symlink_to(store / "greetd")
+        result = self.install(
+            "/etc/greetd", ((greetd, "/etc/greetd"), (pam, "/etc/pam.d"))
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((pam / "greetd").is_symlink())
+        self.assertEqual((store / "greetd").read_text(), "the system's own\n")
+        self.assertFalse((pam / "greetd~").exists())
+        self.assertIn("/etc/pam.d/greetd left alone", result.stdout)
+        # The one that is a file of its own is root's copy's, as on Arch.
+        self.assertEqual(
+            (pam / "greetd-greeter").read_text(),
+            (DOTFILES / "etc/pam.d/greetd-greeter").read_text(),
+        )
+
 
 class Applying(unittest.TestCase):
     """What the Lock Screen tab's Apply runs as root, and what that reads."""

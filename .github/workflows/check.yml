@@ -1,6 +1,6 @@
 # Runs ./check.sh (Jupiter-testing's linters and suites) on every push and
 # pull request, in an Arch container, so the checks don't need a desktop.
-# The same file in every Jupiter repo, with the other two cloned next to the
+# The same file in every Jupiter repo, with the others cloned next to the
 # checkout, as on the desktop. Privileged: the suites' stand-ins use unshare.
 name: Check
 
@@ -66,12 +66,29 @@ jobs:
       - name: Check
         run: |
           chown -R ci: "$GITHUB_WORKSPACE"
+          # A branch's work across the repos is checked together: each
+          # clone takes the same branch where it has one.
           for repo in Jupiter-dotfiles Jupiter-installer Jupiter-testing; do
-            [ -d "$repo" ] || sudo -u ci -H git clone --quiet --depth 1 \
-              "https://github.com/skullduggerry/$repo.git" "$repo"
+            [ -d "$repo" ] && continue
+            url=https://github.com/skullduggerry/$repo.git
+            sudo -u ci -H git clone --quiet --depth 1 --branch "$GITHUB_REF_NAME" "$url" "$repo" 2>/dev/null ||
+              sudo -u ci -H git clone --quiet --depth 1 "$url" "$repo"
           done
           # A session's runtime folder, which Hyprland's config check insists on.
           run=/run/user/$(id -u ci)
           install -d -m 700 -o ci "$run"
           cd "$REPO"
           sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" XDG_RUNTIME_DIR="$run" ./check.sh
+
+  # Jupiter-nixos' flake evaluated: hosts/example, a whole system, on the
+  # runner's Nix, which reaches GitHub for the inputs. Nothing is built. The
+  # other repos have no flake, and skip it.
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - if: hashFiles('flake.nix') != ''
+        uses: cachix/install-nix-action@v31
+      - if: hashFiles('flake.nix') != ''
+        name: Evaluate hosts/example
+        run: nix eval --raw .#nixosConfigurations.example.config.system.build.toplevel.drvPath

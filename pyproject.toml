@@ -13,7 +13,7 @@ ignore = ["E501"]
 allowed-confusables = ["´", "¸", "˛"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["harness", "dotfiles", "installer", "vm"]
+known-first-party = ["harness", "dotfiles", "installer", "nixos", "vm"]
 
 [tool.mypy]
 strict = true
@@ -22,7 +22,8 @@ warn_return_any = false
 
 # scripts/test.sh runs the suites with COVERAGE_PROCESS_START pointing here,
 # which measures every helper they run, imported or started as a process, in
-# both repos. It sets JUPITER_DOTFILES and JUPITER_INSTALLER.
+# the tested repos. It sets JUPITER_DOTFILES, JUPITER_INSTALLER and
+# JUPITER_NIXOS.
 [tool.coverage.run]
 parallel = true
 # A helper that runs until it is stopped (tablet.py pad) still counts.
@@ -34,6 +35,8 @@ source = [
     "${JUPITER_DOTFILES}/etc",
     "${JUPITER_DOTFILES}/scripts",
     "${JUPITER_INSTALLER}/jupiter",
+    "${JUPITER_NIXOS}/jupiter_nixos",
+    "${JUPITER_NIXOS}/nixos",
 ]
 
 [tool.coverage.report]
