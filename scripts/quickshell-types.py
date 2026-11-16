@@ -44,7 +44,23 @@ def first(pattern: str, text: str, flags: int = 0) -> str:
 source = pathlib.Path("/usr/lib/qt6/qml/Quickshell")
 target = pathlib.Path(sys.argv[1]) / "Quickshell"
 
-types = {path: path.read_text() for path in source.rglob("*.qmltypes")}
+types = {path: path.read_text() for path in sorted(source.rglob("*.qmltypes"))}
+
+modules = {
+    path: first(r"^module (\S+)", (path.parent / "qmldir").read_text(), re.M)
+    for path in types
+}
+# Where each type is really declared: taken before the stand-ins below are
+# swapped for copies, as the copies would otherwise claim it for whichever
+# module happened to be read last.
+module_of = {
+    first(r'name: "([^"]+)"', block): modules[path]
+    for path, text in types.items()
+    for block in re.findall(
+        r"^    Component \{\n.*?^    \}\n", text, re.S | re.M
+    )
+    if "isTypeOpaque: true" not in block
+}
 real = {
     first(r'name: "([^"]+)"', block): block
     for text in types.values()
@@ -87,15 +103,6 @@ aliases: dict[str, set[str]] = {}
 for name, exports in components:
     for alias in {name.rsplit("::", 1)[-1], *exports}:
         aliases.setdefault(alias, set()).add(name)
-modules = {
-    path: first(r"^module (\S+)", (path.parent / "qmldir").read_text(), re.M)
-    for path in types
-}
-module_of = {
-    name: modules[path]
-    for path, text in types.items()
-    for name in re.findall(r'Component \{[^{}]*?\bname: "([^"]+)"', text, re.S)
-}
 core = types[source / "quickshell-core.qmltypes"]
 value_types = {
     first(r'name: "([^"]+)"', block): block
