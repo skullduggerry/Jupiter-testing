@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-# Formats the staged files of the repo being committed to and stages them
-# again, then lints them. The suites run before a push (pre-push) and after
-# it (CI), not on every commit. scripts/install-hooks.sh points every Jupiter
-# clone's hooks here.
-hooks=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
-exec "$hooks/../check.sh" lint "$(git rev-parse --show-toplevel)" --fix --staged

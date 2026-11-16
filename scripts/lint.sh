@@ -3,7 +3,7 @@
 #
 #     scripts/lint.sh KIND PATH            KIND is dotfiles, installer or testing
 #     scripts/lint.sh KIND PATH --fix      format, and apply the safe fixes, first
-#     scripts/lint.sh KIND PATH --staged   only the files git has staged (pre-commit)
+#     scripts/lint.sh KIND PATH --staged   only the files git has staged
 #
 # check.sh runs this for each repo it checks, then the suites. The
 # tools run inside PATH, so they read its pyproject.toml, .editorconfig and

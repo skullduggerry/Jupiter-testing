@@ -12,7 +12,7 @@
 #     ./check.sh test            the suites only
 #     ./check.sh --fix           format, and apply the safe fixes, first
 #     ./check.sh ~/src/dots      a clone by its path, whichever repo it is
-#     --staged                   lint only what git has staged (pre-commit)
+#     --staged                   lint only what git has staged
 #     --security, -k PATTERN     the security suites, the tests by name
 #
 # The repos are found next to this one, or at JUPITER_DOTFILES and

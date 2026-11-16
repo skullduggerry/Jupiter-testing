@@ -16,7 +16,7 @@ write tests: `.github/llm.md`.
 | `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`): the rig (`rig.py`), installing with phases 1 and 2 (`install.py`) and the scenarios (`test_install.py`) |
 | `check.sh` | the one command, which every repo's `check.sh` hands over to: each repo's lint, then the suites |
 | `scripts/` | `lint.sh` (one repo's formatting and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, and the dotfiles' lint helpers: `quickshell-types.py` (Quickshell's type information, corrected for qmllint) and `pasted-glyphs.py` |
-| `.githooks/` | pre-commit (format + lint staged) and pre-push (lint + suites), which `install-hooks.sh` points all three clones at; they check whichever repo they run in |
+| `.githooks/` | pre-push (format, lint, suites; stops if formatting changed anything), which `install-hooks.sh` points all three clones at; they check whichever repo they run in |
 | `pyproject.toml`, `.editorconfig` | ruff, mypy (strict) and coverage for this repo; the tested repos keep their own, which `lint.sh` reads there |
 
 Each test module also runs alone: `python3 -m unittest dotfiles.test_shelf`.
@@ -29,7 +29,7 @@ Each test module also runs alone: `python3 -m unittest dotfiles.test_shelf`.
 ./check.sh lint dotfiles         # formatting and linters only, one repo or a clone's path
 ./check.sh test                  # the suites only
 ./check.sh --fix                 # format and apply the safe lint fixes first
-./check.sh --staged              # lint the staged files only (the pre-commit hook)
+./check.sh --staged              # lint the staged files only
 ./check.sh test --security       # the security suites alone, no coverage floor
 ./check.sh test -k Restore       # the tests matching a pattern, as unittest's -k
 python3 -m unittest dotfiles.security.test_lock_screen -k Restore

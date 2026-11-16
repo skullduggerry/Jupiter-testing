@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
-# The repo being pushed, all of it, no auto-fixing: pushing should not
-# rewrite code.
+# Before a push: formats the repo being pushed, lints it and runs the suites.
+# If formatting changed anything the push stops, leaving the changes for a
+# commit of their own. CI (.github/workflows/check.yml) runs the same checks
+# again after the push.
 hooks=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
-exec "$hooks/../check.sh" check "$(git rev-parse --show-toplevel)"
+repo=$(git rev-parse --show-toplevel)
+before=$(git -C "$repo" diff | sha1sum)
+"$hooks/../check.sh" check "$repo" --fix || exit
+if [[ $(git -C "$repo" diff | sha1sum) != "$before" ]]; then
+    echo "pre-push: formatting changed these files; commit them and push again" >&2
+    git -C "$repo" diff --stat >&2
+    exit 1
+fi

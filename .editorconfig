@@ -10,5 +10,5 @@ indent_size = 4
 trim_trailing_whitespace = false
 
 # shfmt reads these.
-[{*.sh,pre-commit,pre-push}]
+[{*.sh,pre-push}]
 switch_case_indent = true
