@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from harness import DOTFILES
-from harness.nix import evaluate, example
+from harness.nix import evaluate, example, skip_without_nix
 
 TOPLEVEL = "config.system.build.toplevel.drvPath"
 
@@ -40,6 +40,8 @@ class System(unittest.TestCase):
                 self.assertRegex(path, r"^/nix/store/.*-nixos-system-example-")
 
     def test_the_settings_are_checked(self) -> None:
+        # Before the subtests, which would take a skip for a pass.
+        skip_without_nix()
         for field, value in (
             ("hostname", "Bad Host!"),
             ("user", "root:x"),

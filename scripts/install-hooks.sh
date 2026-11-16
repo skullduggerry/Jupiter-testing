@@ -2,12 +2,14 @@
 # Point git in every Jupiter clone at the hooks in this repo's .githooks/,
 # which check whichever repo they run in, before each push. Run once per clone of this repo;
 # .git/hooks is not version controlled, core.hooksPath is. The other repos
-# are found next to this one, or at JUPITER_DOTFILES and JUPITER_INSTALLER.
+# are found next to this one, or at JUPITER_DOTFILES, JUPITER_INSTALLER and
+# JUPITER_NIXOS.
 set -euo pipefail
 testing=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 chmod +x "$testing"/.githooks/*
 for repo in "$testing" "${JUPITER_DOTFILES:-$testing/../Jupiter-dotfiles}" \
-    "${JUPITER_INSTALLER:-$testing/../Jupiter-installer}"; do
+    "${JUPITER_INSTALLER:-$testing/../Jupiter-installer}" \
+    "${JUPITER_NIXOS:-$testing/../Jupiter-nixos}"; do
     if [[ -d $repo/.git ]]; then
         git -C "$repo" config core.hooksPath "$testing/.githooks"
         echo "hooks installed in $(realpath "$repo")"
@@ -15,4 +17,4 @@ for repo in "$testing" "${JUPITER_DOTFILES:-$testing/../Jupiter-dotfiles}" \
         echo "no clone at $repo, skipped"
     fi
 done
-echo "  pre-push    formats, lints and tests that repo; stops the push if formatting changed anything"
+echo "  pre-push    formats and lints that repo, tests every repo (Arch and NixOS); stops the push if formatting changed anything"

@@ -365,6 +365,19 @@ sys.exit(broken)
 EOF
 passed "${#data[@]} files"
 
+# The workflows CI runs, the shell in them through shellcheck. Optional here,
+# as Arch desktops have no actionlint yet; CI installs it.
+mapfile -t workflows < <(files '.github/workflows/*.yml')
+if ((${#workflows[@]})); then
+    section "workflows (actionlint)"
+    if ! command -v actionlint >/dev/null; then
+        echo "  skip  actionlint is not installed"
+    else
+        actionlint "${workflows[@]}" >"$tmp/out" 2>&1 || failed "actionlint"
+        passed "${#workflows[@]} files"
+    fi
+fi
+
 if [[ $kind == dotfiles ]]; then
     section "hyprland configs"
     # Hyprland's own parser, which also rejects unknown rule fields and wrong

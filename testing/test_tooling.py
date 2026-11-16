@@ -114,6 +114,27 @@ class Lint(unittest.TestCase):
             with self.subTest(problem=problem):
                 self.assertIn(problem, output)
 
+    def test_a_workflow_is_linted_with_its_shell(self) -> None:
+        needs("actionlint")
+        workflows = self.repo / ".github/workflows"
+        workflows.mkdir(parents=True)
+        good = (
+            "on: push\njobs:\n  check:\n    runs-on: ubuntu-latest\n"
+            '    steps:\n      - run: echo "$HOME"\n'
+        )
+        (workflows / "check.yml").write_text(good)
+        git(self.repo, "add", "-A")
+        code, output = lint("installer", self.repo)
+        self.assertEqual(code, 0, output)
+        self.assertIn("workflows (actionlint)", output)
+        (workflows / "check.yml").write_text(
+            good.replace('echo "$HOME"', "echo $HOME") + "    timeout: 5\n"
+        )
+        code, output = lint("installer", self.repo)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL  actionlint", output)
+        self.assertIn("SC2086", output)
+
     def test_fix_formats_and_fixes(self) -> None:
         (self.repo / "ugly.py").write_text("import os\nVALUE   =  1\n")
         (self.repo / "notes.txt").write_text("trailing \nno newline")

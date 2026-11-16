@@ -1,94 +1,201 @@
-# Runs ./check.sh (Jupiter-testing's linters and suites) on every push and
-# pull request, in an Arch container, so the checks don't need a desktop.
-# The same file in every Jupiter repo, with the others cloned next to the
-# checkout, as on the desktop. Privileged: the suites' stand-ins use unshare.
+# Checks every push and pull request against both setups, Arch and NixOS,
+# whichever repo it is to: a change to one repo that breaks either is caught
+# here. The same file in every Jupiter repo (testing/test_ci.py holds them to
+# it); daily on main as well, as Arch's packages and nixpkgs move between
+# pushes.
+#
+# Both jobs lay the repos out with Jupiter-testing's scripts/ci-repos.sh: the
+# pushed one, and the others from the same branch where they have it, each
+# by what it holds, so the Arch installer and NixOS are both always there.
+#
+#   arch   in an Arch container, as the desktop: the pushed repo's formatting
+#          and linters, then every suite of every repo (./check.sh test all),
+#          NixOS's evaluated by Nix against the flake's own nixpkgs.
+#          Privileged: the suites' stand-ins use unshare.
+#   nixos  on the runner's Nix: the flake, with the pushed dotfiles and real
+#          inputs, evaluated and its login helpers built; the dotfiles'
+#          Hyprland config checked by NixOS's Hyprland, and their QML suites
+#          run in NixOS's Quickshell, as these versions differ from Arch's.
 name: Check
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * *"
 
 concurrency:
   group: check-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The branch the repos are laid out by (a pull request's own, not its merge).
+  BRANCH: ${{ github.head_ref || github.ref_name }}
+
+# bash -eo pipefail: a failing command fails its step, in a pipe too.
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  check:
+  arch:
+    name: Arch (lint, every suite)
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
       options: --privileged
-    env:
-      REPO: ${{ github.event.repository.name }}
     steps:
       - name: Install tools
         # What Jupiter-testing's lint.sh and test.sh ask for, what
         # Jupiter-installer's packages/pacman.txt lists for the checks (mypy's
         # stubs, the VM's firmware), and what an installed desktop has that the
         # suites use: neovim's Lua for lua-language-server, the GNOME schemas,
-        # Kvantum's KvMojave, cmp. [multilib] for the package-list test.
+        # Kvantum's KvMojave, cmp. [multilib] for the package-list test; nix
+        # and nixfmt for Jupiter-nixos.
         run: |
           printf '[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
           pacman -Syu --noconfirm --needed git sudo rust \
             ruff mypy python-types-python-dateutil python-pygobject-stubs \
-            shellcheck shfmt stylua lua lua-language-server zsh \
+            shellcheck shfmt stylua lua lua-language-server zsh nixfmt nix actionlint \
             qt6-declarative hyprland quickshell uwsm \
             python-coverage python-dateutil python-gobject python-pyxdg \
             util-linux file xdg-user-dirs qemu-system-x86 swtpm edk2-ovmf \
             neovim gsettings-desktop-schemas kvantum diffutils
           # To compare with the desktop when a check passes there only.
-          pacman -Q quickshell qt6-declarative hyprland lua-language-server python
+          pacman -Q quickshell qt6-declarative hyprland lua-language-server python nix
       - name: Add an unprivileged user
-        # Root reads every file, which the permission checks rely on not doing.
-        run: useradd -m ci
-      - if: env.REPO == 'Jupiter-dotfiles'
-        id: wallust
+        # Root reads every file, which the permission checks rely on not
+        # doing. Nix runs as that user too, single-user, its store theirs.
+        run: |
+          useradd -m ci
+          install -d -o ci /nix
+          chown -R ci: /nix
+          # A session's runtime folder, which Hyprland's config check insists on.
+          install -d -m 700 -o ci "/run/user/$(id -u ci)"
+      - id: wallust
         uses: actions/cache/restore@v4
         with:
           path: /home/ci/.cargo
           key: cargo-wallust-3.5.1
       - name: Install wallust
         # Built by cargo, as on the desktop (apply.sh looks in ~/.cargo/bin).
-        if: env.REPO == 'Jupiter-dotfiles' && steps.wallust.outputs.cache-hit != 'true'
+        if: steps.wallust.outputs.cache-hit != 'true'
         run: |
           chown -R ci: /home/ci
           sudo -u ci -H cargo install --locked wallust --version 3.5.1
       # Saved straight away, so a failing check doesn't cost the next run the build.
-      - if: env.REPO == 'Jupiter-dotfiles' && steps.wallust.outputs.cache-hit != 'true'
+      - if: steps.wallust.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: /home/ci/.cargo
           key: cargo-wallust-3.5.1
       - uses: actions/checkout@v4
         with:
-          path: ${{ github.event.repository.name }}
-      - name: Check
+          path: checkout
+      - name: Lay out the repos
         run: |
           chown -R ci: "$GITHUB_WORKSPACE"
-          # A branch's work across the repos is checked together: each
-          # clone takes the same branch where it has one.
-          for repo in Jupiter-dotfiles Jupiter-installer Jupiter-testing; do
-            [ -d "$repo" ] && continue
-            url=https://github.com/skullduggerry/$repo.git
-            sudo -u ci -H git clone --quiet --depth 1 --branch "$GITHUB_REF_NAME" "$url" "$repo" 2>/dev/null ||
-              sudo -u ci -H git clone --quiet --depth 1 "$url" "$repo"
-          done
-          # A session's runtime folder, which Hyprland's config check insists on.
-          run=/run/user/$(id -u ci)
-          install -d -m 700 -o ci "$run"
-          cd "$REPO"
-          sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" XDG_RUNTIME_DIR="$run" ./check.sh
+          as_ci() { sudo -u ci -H env GIT_TERMINAL_PROMPT=0 "$@"; }
+          # Jupiter-testing's layout script: the pushed one's, or the branch's.
+          if [ -f checkout/harness/qml.py ]; then
+            script=checkout/scripts/ci-repos.sh
+          else
+            url=https://github.com/skullduggerry/Jupiter-testing.git
+            as_ci git clone --quiet --depth 1 --branch "$BRANCH" "$url" Jupiter-testing 2>/dev/null ||
+              as_ci git clone --quiet --depth 1 "$url" Jupiter-testing
+            script=Jupiter-testing/scripts/ci-repos.sh
+          fi
+          as_ci bash "$script" checkout "$BRANCH" | tee layout
+          echo "PUSHED=$(sed -n 's/: the push.*//p' layout)" >> "$GITHUB_ENV"
+      - name: Find the flake's nixpkgs
+        # The NixOS suites evaluate the modules against the nixpkgs the flake
+        # pins (the newest unstable while it has no flake.lock).
+        run: |
+          nixpkgs=$(sudo -u ci -H env NIX_CONFIG="$NIX" nix eval --raw --impure --expr \
+            "(builtins.getFlake \"path:$GITHUB_WORKSPACE/Jupiter-nixos\").inputs.nixpkgs.outPath")
+          echo "JUPITER_NIXPKGS=$nixpkgs" >> "$GITHUB_ENV"
+        env:
+          NIX: |
+            experimental-features = nix-command flakes
+            build-users-group =
+            sandbox = false
+      - name: Lint the pushed repo
+        run: |
+          cd "$PUSHED"
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
+            ./check.sh lint
+      - name: Test every repo, Arch and NixOS
+        if: success() || failure()
+        run: |
+          cd Jupiter-testing
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
+            JUPITER_NIXPKGS="$JUPITER_NIXPKGS" NIX_CONFIG="$NIX" ./check.sh test all
+        env:
+          NIX: |
+            experimental-features = nix-command flakes
+            build-users-group =
+            sandbox = false
 
-  # Jupiter-nixos' flake evaluated: hosts/example, a whole system, on the
-  # runner's Nix, which reaches GitHub for the inputs. Nothing is built. The
-  # other repos have no flake, and skip it.
-  nix:
+  nixos:
+    name: NixOS (flake, its Hyprland and Quickshell)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - if: hashFiles('flake.nix') != ''
-        uses: cachix/install-nix-action@v31
-      - if: hashFiles('flake.nix') != ''
-        name: Evaluate hosts/example
-        run: nix eval --raw .#nixosConfigurations.example.config.system.build.toplevel.drvPath
+        with:
+          path: checkout
+      - uses: cachix/install-nix-action@v31
+      - name: Lay out the repos
+        run: |
+          export GIT_TERMINAL_PROMPT=0
+          if [ -f checkout/harness/qml.py ]; then
+            script=checkout/scripts/ci-repos.sh
+          else
+            url=https://github.com/skullduggerry/Jupiter-testing.git
+            git clone --quiet --depth 1 --branch "$BRANCH" "$url" Jupiter-testing 2>/dev/null ||
+              git clone --quiet --depth 1 "$url" Jupiter-testing
+            script=Jupiter-testing/scripts/ci-repos.sh
+          fi
+          bash "$script" checkout "$BRANCH"
+      - name: Evaluate the system with these dotfiles
+        # hosts/example, a whole system, with lanzaboote and nixpkgs as the
+        # flake has them and the dotfiles as laid out (not the flake's pin).
+        working-directory: Jupiter-nixos
+        run: |
+          flake() { nix "$@" --override-input dotfiles "path:$GITHUB_WORKSPACE/Jupiter-dotfiles"; }
+          host=path:.#nixosConfigurations.example
+          flake eval --raw "$host.config.system.build.toplevel.drvPath"
+          echo
+          # The login screen's pam_exec helpers and root's copy of its installer.
+          flake build --no-link --print-out-paths \
+            "$host.config.system.build.jupiter.fingerAsked" \
+            "$host.config.system.build.jupiter.diskEncrypted" \
+            "$host.config.system.build.jupiter.greeterRoot"
+          for name in hyprland quickshell python3; do
+            echo "$name=$(flake build --no-link --print-out-paths "$host.pkgs.$name" | head -1)" >> "$GITHUB_ENV"
+          done
+      - name: Hyprland's config check, with NixOS's Hyprland
+        run: |
+          "$hyprland/bin/Hyprland" --version | head -1
+          for config in .config/hypr/hyprland.lua etc/greetd/hyprland.lua; do
+            out=$(XDG_RUNTIME_DIR=$(mktemp -d) "$hyprland/bin/Hyprland" --verify-config \
+              -c "$GITHUB_WORKSPACE/Jupiter-dotfiles/$config" 2>&1 || true)
+            if printf '%s\n' "$out" | grep -q 'config ok'; then
+              echo "ok    $config"
+            else
+              printf '%s\n' "$out" | grep -iE 'error|unknown' >&2
+              echo "FAIL  $config does not verify with NixOS's Hyprland" >&2
+              failed=1
+            fi
+          done
+          exit "${failed:-0}"
+      - name: The dotfiles' QML suites, in NixOS's Quickshell
+        if: success() || failure()
+        working-directory: Jupiter-testing
+        run: |
+          # The lock screen's PAM sandbox needs user namespaces, which
+          # Ubuntu's AppArmor keeps from unprivileged users.
+          sudo sysctl -q kernel.apparmor_restrict_unprivileged_userns=0 || true
+          "$quickshell/bin/qs" --version
+          PATH="$quickshell/bin:$PATH" "$python3/bin/python3" -m harness.run \
+            dotfiles/test_qml.py dotfiles/security/test_lock_screen.py

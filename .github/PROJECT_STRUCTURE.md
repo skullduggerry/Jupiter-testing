@@ -17,8 +17,8 @@ write tests: `.github/llm.md`.
 | `testing/` | this repo's own tooling, each part made to fail: the QML runner, the parallel runner, `lint.sh`, `check.sh`, the VM rig |
 | `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`): the rig (`rig.py`), installing with phases 1 and 2 (`install.py`) and the scenarios (`test_install.py`) |
 | `check.sh` | the one command, which every repo's `check.sh` hands over to: each repo's lint, then the suites |
-| `scripts/` | `lint.sh` (one repo's formatting and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, and the dotfiles' lint helpers: `quickshell-types.py` (Quickshell's type information, corrected for qmllint) and `pasted-glyphs.py` |
-| `.githooks/` | pre-push (format, lint, suites; stops if formatting changed anything), which `install-hooks.sh` points all three clones at; they check whichever repo they run in |
+| `scripts/` | `lint.sh` (one repo's formatting and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, `ci-repos.sh` (CI's layout of the repos), and the dotfiles' lint helpers: `quickshell-types.py` (Quickshell's type information, corrected for qmllint) and `pasted-glyphs.py` |
+| `.githooks/` | pre-push (format and lint the repo pushed, then every repo's suites; stops if formatting changed anything), which `install-hooks.sh` points every clone at |
 | `pyproject.toml`, `.editorconfig` | ruff, mypy (strict) and coverage for this repo; the tested repos keep their own, which `lint.sh` reads there |
 
 Each test module also runs alone: `python3 -m unittest dotfiles.test_shelf`.
@@ -76,6 +76,29 @@ bash script a test starts is noted (`BASH_ENV`). It fails on a helper of the
 repo no test runs, and on a repo whose Python lines the suites run less of
 than its floor (`floors` in `test.sh`). It names any package it is missing,
 among them python-dateutil, which the calendar helper imports.
+
+## CI
+
+`.github/workflows/check.yml`, the same file in every repo
+(`testing/test_ci.py` compares those on one branch), checks a push to any
+repo against both setups. `scripts/ci-repos.sh` lays the repos out first:
+the pushed one, and the others from its branch where their repo has that
+branch holding their kind, else from the default branch, each told by its
+files: a branch of Jupiter-installer that holds NixOS never stands in for
+the Arch installer, nor main for NixOS (from Jupiter-nixos, or while that
+does not exist the Jupiter-installer branch `NIXOS_BRANCH` names: change it
+there when the branch moves or becomes its own repo). Then:
+
+- **arch**, in an Arch container: the pushed repo's `check.sh lint`, then
+  `check.sh test all`, every suite of every repo, with Nix (single-user, as
+  `ci`) evaluating NixOS's modules against the flake's own nixpkgs;
+- **nixos**, on the runner's Nix: the flake with real inputs and the laid
+  out dotfiles evaluated (`--override-input dotfiles`), the login helpers
+  built, the dotfiles' Hyprland configs checked by NixOS's Hyprland and
+  their QML suites run in NixOS's Quickshell, which differ from Arch's.
+
+It runs daily on main as well: Arch's packages and nixpkgs move between
+pushes. The pre-push hook runs the arch job's checks before a push.
 
 ## The harness
 

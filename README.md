@@ -23,7 +23,7 @@ or point `JUPITER_DOTFILES` and `JUPITER_INSTALLER` at wherever they are. Jupite
 ./check.sh check all             # every repo (Jupiter-nixos where it is cloned)
 ./check.sh lint dotfiles         # or test: one half, one repo or a clone's path (--fix formats first)
 ./check.sh test --security       # the security suites alone (-k Lock: tests by name)
-scripts/install-hooks.sh         # once: format, lint and test before each push, in all three clones
+scripts/install-hooks.sh         # once: before each push, lint that repo and test every repo
 ```
 
 Jupiter-dotfiles and Jupiter-installer have a `check.sh` of their own that takes the same arguments and hands them to this one.
@@ -41,6 +41,10 @@ Everything runs against stand-ins in temporary folders: nothing on the machine c
 | `nixos/` | Jupiter-nixos: phase 1 against stand-in commands and a temporary `/mnt`, phases 2 and 3 in a throwaway home, and the flake's modules evaluated by Nix |
 | `nixos/security/` | The disk passphrase and passwords in phase 1 (never in the configuration, which lands in the store), and the PAM stacks, finger and firewall the flake declares |
 | `testing/` | This repo's own tooling: the QML runner, the parallel runner, `lint.sh` and `check.sh` |
+
+## CI
+
+Every push and pull request to any Jupiter repo is checked against both setups, Arch and NixOS, by the same `.github/workflows/check.yml`: the pushed repo's linters and every repo's suites in an Arch container, and on Nix the flake evaluated with the pushed dotfiles, its login helpers built, and the dotfiles' Hyprland config and QML suites run on NixOS's Hyprland and Quickshell. Daily on main too. `scripts/ci-repos.sh` lays the repos out, both installers always among them; `.github/PROJECT_STRUCTURE.md` says how.
 
 ## Documentation
 

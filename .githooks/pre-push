@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Before a push: formats the repo being pushed, lints it and runs the suites.
-# If formatting changed anything the push stops, leaving the changes for a
-# commit of their own. CI (.github/workflows/check.yml) runs the same checks
-# again after the push.
+# Before a push: formats the repo being pushed and lints it, then runs the
+# suites of every Jupiter repo cloned here, Arch's installer and NixOS's
+# alike, as a change to one repo can break another's setup. If formatting
+# changed anything the push stops, leaving the changes for a commit of their
+# own. CI (.github/workflows/check.yml) runs the same checks again after the
+# push, and NixOS's Hyprland and Quickshell besides.
 hooks=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
 repo=$(git rev-parse --show-toplevel)
 before=$(git -C "$repo" diff | sha1sum)
-"$hooks/../check.sh" check "$repo" --fix || exit
+"$hooks/../check.sh" lint "$repo" --fix || exit
 if [[ $(git -C "$repo" diff | sha1sum) != "$before" ]]; then
     echo "pre-push: formatting changed these files; commit them and push again" >&2
     git -C "$repo" diff --stat >&2
     exit 1
 fi
+"$hooks/../check.sh" test all

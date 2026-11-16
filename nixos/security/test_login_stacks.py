@@ -18,7 +18,7 @@ import subprocess
 import unittest
 
 from harness import DOTFILES
-from harness.nix import evaluate, nixpkgs, skip_without_nix
+from harness.nix import evaluate, skip_without_nix
 
 # The lock screen's reader, which login.nix declares from this file.
 FINGERPRINT = DOTFILES / ".config/quickshell/pam/fingerprint.conf"
@@ -217,7 +217,7 @@ class Helpers(unittest.TestCase):
         return built
 
     def test_only_an_empty_answer_asks_for_a_finger(self) -> None:
-        self.assertIsNotNone(nixpkgs())
+        skip_without_nix()
         helper = self.build("fingerAsked")
         for answer, finger in (
             (b"\0", True),
