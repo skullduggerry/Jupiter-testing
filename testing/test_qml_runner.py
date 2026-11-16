@@ -35,6 +35,21 @@ class Runner(unittest.TestCase):
     }""")
         self.assertEqual(failures, [])
 
+    def test_what_must_happen_is_waited_for_on_a_slow_machine(self) -> None:
+        # Later than the test's own 50 ms, well within the floor.
+        failures = self.run_qml("""
+    function test_slow() {
+        let ready = false;
+        wait(400).then(() => ready = true);
+        return tryVerify(() => ready, 50, "never ready");
+    }""")
+        self.assertEqual(failures, [])
+
+    def test_what_never_happens_fails_with_its_message(self) -> None:
+        [failure] = self.run_qml("""
+    function test_never() { return tryVerify(() => false, 50, "never ready"); }""")
+        self.assertIn("test_never: never ready", failure)
+
     def test_a_failure_names_its_test_and_line(self) -> None:
         [failure] = self.run_qml("""
     function test_fine() {}

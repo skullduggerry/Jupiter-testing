@@ -48,9 +48,15 @@ QtObject {
         });
     }
 
-    // Resolves once condition() holds, checking every 10 ms for up to timeout ms.
+    // tryVerify waits on what must happen, so a longer wait costs a passing
+    // test nothing: never less than this, as a CI runner with every core busy
+    // took more than a test's 2 s for a Process and a debounce.
+    readonly property int tryVerifyFloor: 10000
+
+    // Resolves once condition() holds, checking every 10 ms for up to timeout
+    // ms, and at least tryVerifyFloor.
     function tryVerify(condition, timeout, message) {
-        const deadline = Date.now() + (timeout || 1000);
+        const deadline = Date.now() + Math.max(timeout || 1000, root.tryVerifyFloor);
         const poll = () => {
             if (condition())
                 return Promise.resolve();
