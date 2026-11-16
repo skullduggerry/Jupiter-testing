@@ -942,7 +942,7 @@ class AsRoot(unittest.TestCase):
 
     @unittest.skipUnless(Path("/etc/greetd").is_dir(), "needs /etc/greetd")
     def test_a_stack_the_system_links_is_left_alone(self) -> None:
-        # NixOS links each stack from its store, and Jupiter-nixos declares
+        # NixOS links each stack from its store, and the installer declares
         # greetd's, adapted to it: Arch's would name modules it cannot find
         # and a system-local-login it lacks, and lock everyone out.
         greetd = self.root / "etc-greetd"

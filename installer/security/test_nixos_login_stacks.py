@@ -1,4 +1,4 @@
-"""The PAM stacks, the finger and the firewall Jupiter-nixos declares,
+"""The PAM stacks, the finger and the firewall the installer declares on NixOS,
 evaluated by Nix for hosts/example (harness/nix.py; skipped without Nix).
 
 On Arch the dotfiles' etc/pam.d/greetd is installed as it is, and

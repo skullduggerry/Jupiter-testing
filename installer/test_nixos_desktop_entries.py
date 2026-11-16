@@ -8,9 +8,9 @@ import subprocess
 import sys
 import unittest
 
-from harness import DOTFILES, NIXOS, temporary
+from harness import DOTFILES, INSTALLER, temporary
 
-SCRIPT = NIXOS / "nixos/desktop-entries.py"
+SCRIPT = INSTALLER / "nixos/desktop-entries.py"
 CLEANER = DOTFILES / "scripts/uwsm-desktop-entries.py"
 NEXTCLOUD = """[Desktop Entry]
 Name=Nextcloud

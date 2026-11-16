@@ -1,4 +1,4 @@
-"""Phase 3's TPM step (jupiter_nixos/tpm.py) against stand-ins: binding the
+"""Phase 4's TPM step on NixOS (jupiter/nixos/tpm.py) against stand-ins: binding the
 root volume to the TPM, recording the crypttab options it needs in the
 machine's settings and rebuilding, the recovery key, and what it says where
 something is missing.
@@ -22,7 +22,9 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from jupiter_nixos import common, secureboot, system, tpm
+from jupiter import secureboot
+from jupiter import tpm as core
+from jupiter.nixos import common, system, tpm
 
 PCR7 = "a2" * 32
 LUKS_UUID = "11111111-2222-3333-4444-555555555555"
@@ -104,7 +106,7 @@ class Machine(unittest.TestCase):
             (self.efivars / f"{flag}-{secureboot.GLOBAL}").write_bytes(
                 b"\x06\x00\x00\x00" + bytes([on])
             )
-        self.stub = self.efivars / f"StubInfo-{tpm.SYSTEMD_VENDOR}"
+        self.stub = self.efivars / f"StubInfo-{core.SYSTEMD_VENDOR}"
         self.stub.write_bytes(b"\x06\x00\x00\x00lanzastub")
         self.measured = tmp / "tpm2-measure.log"
         self.measured.write_text(
@@ -124,9 +126,9 @@ class Machine(unittest.TestCase):
         common.write_settings(hosts / "box", SETTINGS)
         self.settings_file = hosts / "box/settings.json"
         for module, name, value in (
-            (tpm, "TPM", self.tpm),
-            (tpm, "STUB_INFO", self.stub),
-            (tpm, "MEASURE_LOG", self.measured),
+            (core, "TPM", self.tpm),
+            (core, "STUB_INFO", self.stub),
+            (core, "MEASURE_LOG", self.measured),
             (tpm, "HOSTS", hosts),
             (common, "HOSTS", hosts),
             (system, "INSTALLER_DIR", tmp / "repo"),
@@ -137,7 +139,7 @@ class Machine(unittest.TestCase):
         environment = {
             "PATH": f"{stand_ins}:/usr/bin",
             "WORLD": str(tmp),
-            "POLICY": tpm.policy(PCR7),
+            "POLICY": core.policy(PCR7),
         }
         self.enterContext(mock.patch.dict(os.environ, environment))
         self.printed = self.enterContext(mock.patch("builtins.print"))
@@ -208,9 +210,9 @@ class Binding(Machine):
         self.assertEqual(
             self.settings(), SETTINGS | {"tpm": True, "volumeKey": None}
         )
-        self.assertIn("Reboot and run bootstrap.sh 3 again", self.said())
+        self.assertIn("Reboot and run bootstrap.sh 4 again", self.said())
         self.measured.write_text("")
-        self.assertIsNone(tpm._volume_key_id("root", LUKS_UUID))
+        self.assertIsNone(core._volume_key_id("root", LUKS_UUID))
 
 
 class Missing(Machine):

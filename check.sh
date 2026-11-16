@@ -3,11 +3,11 @@
 # that takes these arguments: Jupiter-dotfiles' and Jupiter-installer's hand
 # them to this one.
 #
-#     ./check.sh [check|lint|test] [all|dotfiles|installer|nixos|testing|PATH ...]
+#     ./check.sh [check|lint|test] [all|dotfiles|installer|testing|PATH ...]
 #                [--fix] [--staged] [--security] [-k PATTERN]
 #
 #     ./check.sh                 the repo you are in (all three outside them)
-#     ./check.sh check all       dotfiles, installer, testing (and nixos, if cloned)
+#     ./check.sh check all       dotfiles, installer and testing
 #     ./check.sh lint dotfiles   formatting and linters only, one repo
 #     ./check.sh test            the suites only
 #     ./check.sh --fix           format, and apply the safe fixes, first
@@ -15,17 +15,15 @@
 #     --staged                   lint only what git has staged
 #     --security, -k PATTERN     the security suites, the tests by name
 #
-# The repos are found next to this one, or at JUPITER_DOTFILES,
-# JUPITER_INSTALLER and JUPITER_NIXOS. Each repo is linted by
-# scripts/lint.sh, with its own settings, then scripts/test.sh runs the
-# suites of all of them at once. See
+# The repos are found next to this one, or at JUPITER_DOTFILES and
+# JUPITER_INSTALLER. Each repo is linted by scripts/lint.sh, with its own
+# settings, then scripts/test.sh runs the suites of all of them at once. See
 # "Running" in .github/PROJECT_STRUCTURE.md.
 set -uo pipefail
 
 testing=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd) || exit 2
 dotfiles=$(realpath -m "${JUPITER_DOTFILES:-$testing/../Jupiter-dotfiles}")
 installer=$(realpath -m "${JUPITER_INSTALLER:-$testing/../Jupiter-installer}")
-nixos=$(realpath -m "${JUPITER_NIXOS:-$testing/../Jupiter-nixos}")
 
 usage() {
     sed -n '6,17s/^# \{0,1\}//p' "${BASH_SOURCE[0]}"
@@ -35,8 +33,6 @@ usage() {
 kind_of() {
     if [[ -f $1/.config/quickshell/shell.qml ]]; then
         echo dotfiles
-    elif [[ -f $1/flake.nix && -f $1/jupiter_nixos/__main__.py ]]; then
-        echo nixos
     elif [[ -f $1/jupiter/__main__.py ]]; then
         echo installer
     elif [[ -f $1/harness/qml.py ]]; then
@@ -53,7 +49,6 @@ take() {
     case $kind in
         dotfiles) dotfiles=$1 ;;
         installer) installer=$1 ;;
-        nixos) nixos=$1 ;;
         testing) [[ $1 == "$testing" ]] || {
             echo "check.sh: $1 is another clone of Jupiter-testing: run its own check.sh" >&2
             exit 2
@@ -63,9 +58,6 @@ take() {
 }
 
 arguments=("$@")
-# All of them: Jupiter-nixos where it is cloned, as it is new.
-everything=(dotfiles installer testing)
-[[ -d $nixos ]] && everything+=(nixos)
 lint=1
 test=1
 lint_args=()
@@ -98,15 +90,15 @@ while (($#)); do
             test_args+=(-k "$2")
             shift
             ;;
-        all) kinds+=("${everything[@]}") ;;
-        dotfiles | installer | nixos | testing) kinds+=("$1") ;;
+        all) kinds+=(dotfiles installer testing) ;;
+        dotfiles | installer | testing) kinds+=("$1") ;;
         -*)
             echo "check.sh: unknown option: $1 (see --help)" >&2
             exit 2
             ;;
         *)
             if ! path=$(realpath -e "$1" 2>/dev/null) || ! take "$path"; then
-                echo "check.sh: unknown repo: $1 (dotfiles, installer, nixos, testing, all, or a clone's path)" >&2
+                echo "check.sh: unknown repo: $1 (dotfiles, installer, testing, all, or a clone's path)" >&2
                 exit 2
             fi
             ;;
@@ -121,12 +113,12 @@ if ((! ${#kinds[@]})); then
         fi
         take "$top"
     else
-        kinds=("${everything[@]}")
+        kinds=(dotfiles installer testing)
     fi
 fi
 mapfile -t kinds < <(printf '%s\n' "${kinds[@]}" | sort -u)
-export JUPITER_DOTFILES=$dotfiles JUPITER_INSTALLER=$installer JUPITER_NIXOS=$nixos
-declare -A repos=([dotfiles]=$dotfiles [installer]=$installer [nixos]=$nixos [testing]=$testing)
+export JUPITER_DOTFILES=$dotfiles JUPITER_INSTALLER=$installer
+declare -A repos=([dotfiles]=$dotfiles [installer]=$installer [testing]=$testing)
 for kind in "${kinds[@]}"; do
     if [[ ! -d ${repos[$kind]} ]]; then
         echo "check.sh: no Jupiter-$kind at ${repos[$kind]}: clone it next to Jupiter-testing, or set JUPITER_${kind^^}" >&2

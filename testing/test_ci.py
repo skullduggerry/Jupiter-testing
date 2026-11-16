@@ -1,7 +1,6 @@
 """scripts/ci-repos.sh, which lays the repos out for CI: every kind there,
 each told by its files, from the pushed branch where its repo has that kind
-on it, else from the default branch; NixOS from Jupiter-nixos, or while
-that does not exist from its branch of Jupiter-installer.
+on it, else from the default branch.
 
 GitHub is a folder of bare repos (JUPITER_GITHUB); each branch holds only
 the file its kind is told by.
@@ -21,7 +20,6 @@ SCRIPT = TESTING / "scripts/ci-repos.sh"
 FILES = {
     "dotfiles": [".config/quickshell/shell.qml"],
     "installer": ["jupiter/__main__.py"],
-    "nixos": ["flake.nix", "jupiter_nixos/__main__.py"],
     "testing": ["harness/qml.py"],
 }
 GIT = [
@@ -86,9 +84,7 @@ class Layout(unittest.TestCase):
         done = subprocess.run(
             [str(SCRIPT), "checkout", branch],
             cwd=self.work,
-            env=os.environ
-            | {"JUPITER_GITHUB": str(self.github), "NIXOS_BRANCH": "nixos"}
-            | env,
+            env=os.environ | {"JUPITER_GITHUB": str(self.github)} | env,
             capture_output=True,
             text=True,
             check=False,
@@ -104,86 +100,58 @@ class Layout(unittest.TestCase):
             found[folder.name] = content
         return done, found
 
-    def test_a_dotfiles_branch_gets_arch_and_nixos(self) -> None:
-        # The branch of Jupiter-installer named like the push holds NixOS:
-        # NixOS comes from it, the Arch installer from main.
+    def test_each_repo_from_the_branch_where_it_has_it(self) -> None:
         self.repo("Jupiter-dotfiles", main="dotfiles", work="dotfiles")
-        self.repo("Jupiter-testing", main="testing", work="testing")
-        self.repo("Jupiter-installer", main="installer", work="nixos")
+        self.repo("Jupiter-testing", main="testing")
+        self.repo("Jupiter-installer", main="installer", work="installer")
         done, found = self.layout("Jupiter-dotfiles", "work")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(
             found,
             {
                 "Jupiter-dotfiles": "Jupiter-dotfiles work",
-                "Jupiter-installer": "Jupiter-installer main",
-                "Jupiter-nixos": "Jupiter-installer work",
-                "Jupiter-testing": "Jupiter-testing work",
+                "Jupiter-installer": "Jupiter-installer work",
+                "Jupiter-testing": "Jupiter-testing main",
             },
         )
-        self.assertIn("Jupiter-nixos: Jupiter-installer@work", done.stdout)
+        self.assertIn("Jupiter-installer: Jupiter-installer@work", done.stdout)
 
-    def test_a_push_to_main_gets_nixos_from_its_branch(self) -> None:
+    def test_a_push_to_main_gets_main(self) -> None:
         self.repo("Jupiter-dotfiles", main="dotfiles")
         self.repo("Jupiter-testing", main="testing")
-        self.repo("Jupiter-installer", main="installer", nixos="nixos")
-        done, found = self.layout("Jupiter-dotfiles", "main")
+        self.repo("Jupiter-installer", main="installer", work="installer")
+        done, found = self.layout("Jupiter-installer", "main")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(found["Jupiter-installer"], "Jupiter-installer main")
-        self.assertEqual(found["Jupiter-nixos"], "Jupiter-installer nixos")
-
-    def test_the_nixos_branch_pushed_is_nixos_beside_arch(self) -> None:
-        self.repo("Jupiter-dotfiles", main="dotfiles")
-        self.repo("Jupiter-testing", main="testing")
-        self.repo("Jupiter-installer", main="installer", nixos="nixos")
-        done, found = self.layout("Jupiter-installer", "nixos")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(found["Jupiter-nixos"], "Jupiter-installer nixos")
-        self.assertEqual(found["Jupiter-installer"], "Jupiter-installer main")
-        self.assertIn("Jupiter-nixos: the push", done.stdout)
-
-    def test_jupiter_nixos_once_it_exists(self) -> None:
-        self.repo("Jupiter-dotfiles", main="dotfiles", work="dotfiles")
-        self.repo("Jupiter-testing", main="testing")
-        self.repo("Jupiter-installer", main="installer", nixos="nixos")
-        self.repo("Jupiter-nixos", main="nixos", work="nixos")
-        done, found = self.layout("Jupiter-dotfiles", "work")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(found["Jupiter-nixos"], "Jupiter-nixos work")
-        done, found = self.layout("Jupiter-testing", "main")
-        self.assertEqual(found["Jupiter-nixos"], "Jupiter-nixos main")
+        self.assertIn("Jupiter-installer: the push", done.stdout)
 
     def test_testing_pushed_is_the_one_tested_with(self) -> None:
         self.repo("Jupiter-dotfiles", main="dotfiles")
         self.repo("Jupiter-testing", main="testing", work="testing")
-        self.repo("Jupiter-installer", main="installer", nixos="nixos")
+        self.repo("Jupiter-installer", main="installer")
         done, found = self.layout("Jupiter-testing", "work")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(found["Jupiter-testing"], "Jupiter-testing work")
         self.assertEqual(found["Jupiter-dotfiles"], "Jupiter-dotfiles main")
 
-    def test_no_nixos_anywhere_fails_naming_where_it_looked(self) -> None:
+    def test_a_branch_holding_something_else_is_passed_over(self) -> None:
+        # Told by its files: a branch of the installer's repo that holds no
+        # installer is not taken for one.
+        self.repo("Jupiter-dotfiles", main="dotfiles", work="dotfiles")
+        self.repo("Jupiter-testing", main="testing")
+        self.repo("Jupiter-installer", main="installer", work="testing")
+        done, found = self.layout("Jupiter-dotfiles", "work")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(found["Jupiter-installer"], "Jupiter-installer main")
+
+    def test_a_repo_found_nowhere_fails_naming_where_it_looked(self) -> None:
         self.repo("Jupiter-dotfiles", main="dotfiles")
         self.repo("Jupiter-testing", main="testing")
-        self.repo("Jupiter-installer", main="installer")
+        self.repo("Jupiter-installer", main="testing")
         done, _ = self.layout("Jupiter-dotfiles", "main")
         self.assertEqual(done.returncode, 2)
-        self.assertIn("found no nixos in", done.stderr)
-        self.assertIn("Jupiter-installer@nixos", done.stderr)
-
-    def test_an_arch_branch_of_the_installer_is_arch(self) -> None:
-        # The installer's own branch, holding Arch, is the Arch installer
-        # tested; NixOS still from its branch.
-        self.repo("Jupiter-dotfiles", main="dotfiles", fix="dotfiles")
-        self.repo("Jupiter-testing", main="testing")
-        self.repo(
-            "Jupiter-installer", main="installer", fix="installer",
-            nixos="nixos",
-        )  # fmt: skip
-        done, found = self.layout("Jupiter-dotfiles", "fix")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(found["Jupiter-installer"], "Jupiter-installer fix")
-        self.assertEqual(found["Jupiter-nixos"], "Jupiter-installer nixos")
+        self.assertIn("found no installer in", done.stderr)
+        self.assertIn("Jupiter-installer@main", done.stderr)
 
 
 class Workflow(unittest.TestCase):
@@ -195,11 +163,11 @@ class Workflow(unittest.TestCase):
         # Among the repos on this repo's branch: CI tests a branch against
         # the other repos' main where they have no such branch, and their
         # workflow changes only once the branch is merged.
-        from harness import DOTFILES, INSTALLER, NIXOS
+        from harness import DOTFILES, INSTALLER
 
         ours = (TESTING / self.WORKFLOW).read_text()
         branch = git("-C", TESTING, "rev-parse", "--abbrev-ref", "HEAD")
-        for repo in (DOTFILES, INSTALLER, NIXOS):
+        for repo in (DOTFILES, INSTALLER):
             path = repo / self.WORKFLOW
             if not path.exists():
                 continue
@@ -219,7 +187,7 @@ class Workflow(unittest.TestCase):
                     "Jupiter-testing's: the same file goes in every repo",
                 )
 
-    def test_it_lays_out_both_installers_and_tests_them_all(self) -> None:
+    def test_it_lays_the_repos_out_and_tests_them_all(self) -> None:
         text = (TESTING / self.WORKFLOW).read_text()
         self.assertIn("scripts/ci-repos.sh", text)
         self.assertIn("check.sh test all", text)

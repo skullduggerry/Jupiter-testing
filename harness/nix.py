@@ -1,6 +1,6 @@
-"""Jupiter-nixos' modules evaluated by Nix, for the tests to read what a
-machine's configuration comes to: its PAM stacks, greetd's settings, the
-firewall, the file systems.
+"""The installer's NixOS modules (nixos/) evaluated by Nix, for the tests
+to read what a machine's configuration comes to: its PAM stacks, greetd's
+settings, the firewall, the file systems.
 
 The modules are evaluated as the flake does (nixos/, a host's
 hardware-configuration.nix and its settings), with nixpkgs from
@@ -23,7 +23,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from . import DOTFILES, NIXOS
+from . import DOTFILES, INSTALLER
 
 LANZABOOTE = """\
 # lanzaboote's options alone, where its module cannot be fetched.
@@ -37,13 +37,13 @@ LANZABOOTE = """\
 """
 # The repos as the flake sees them (no .git); settings from a file, as JSON.
 EVALUATE = """\
-{ nixpkgs, nixos, dotfiles, host, settings, stub }:
+{ nixpkgs, installer, dotfiles, host, settings, stub }:
 let
   source = path: builtins.path {
     inherit path; name = "source";
     filter = p: _: baseNameOf p != ".git";
   };
-  repo = source nixos;
+  repo = source installer;
 in
 import (nixpkgs + "/nixos/lib/eval-config.nix") {
   system = null;
@@ -94,7 +94,7 @@ def skip_without_nix() -> None:
 def example() -> dict[str, Any]:
     """hosts/example's settings."""
     settings: dict[str, Any] = json.loads(
-        (NIXOS / "hosts/example/settings.json").read_text()
+        (INSTALLER / "hosts/example/settings.json").read_text()
     )
     return settings
 
@@ -113,7 +113,7 @@ def evaluate(expression: str, settings: dict[str, Any] | None = None) -> Any:
         )
         arguments = {
             "nixpkgs": nixpkgs(),
-            "nixos": NIXOS,
+            "installer": INSTALLER,
             "dotfiles": DOTFILES,
             "settings": folder / "settings.json",
             "stub": folder / "lanzaboote.nix",

@@ -1,6 +1,6 @@
-"""What Jupiter-nixos' phase 1 does with the disk's passphrase, the
+"""What phase 1 on NixOS does with the disk's passphrase, the
 passwords, the data disks' key files and the disks it was not given, with
-nixos/test_phase1's stand-ins: every command recorded with its arguments and
+installer/test_nixos_phase1's stand-ins: every command recorded with its arguments and
 what it read on stdin, /mnt a temporary folder. On NixOS the configuration
 lands in the world-readable store, so neither a password nor the passphrase
 may reach it: they go on stdin, and nowhere else.
@@ -9,7 +9,12 @@ may reach it: they go on stdin, and nowhere else.
 import json
 import unittest
 
-from nixos.test_phase1 import PASSPHRASE, USER, Declining, Encrypting
+from installer.test_nixos_phase1 import (
+    PASSPHRASE,
+    USER,
+    Declining,
+    Encrypting,
+)
 
 NOT_CHOSEN = ("/dev/vdy", "/dev/vdw", "/dev/sda", "/dev/sr0")
 SECRETS = (PASSPHRASE, "secret-1", "secret-2")

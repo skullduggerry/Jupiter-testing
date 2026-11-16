@@ -6,8 +6,7 @@ named. Here Jupiter-testing is a stand-in whose check.sh records how it was
 run.
 
 A module mixes Forwarding into its TestCase and names the script and the
-variable it sets: dotfiles/test_check.py, installer/test_check.py,
-nixos/test_check.py.
+variable it sets: dotfiles/test_check.py, installer/test_check.py.
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ else:
 # Records its arguments and the repos it was given, and answers $ANSWER.
 CHECK = """#!/bin/sh
 echo "$*" >>"$CALLS"
-echo "dotfiles=${JUPITER_DOTFILES-} installer=${JUPITER_INSTALLER-} nixos=${JUPITER_NIXOS-}" >>"$CALLS"
+echo "dotfiles=${JUPITER_DOTFILES-} installer=${JUPITER_INSTALLER-}" >>"$CALLS"
 exit "${ANSWER:-0}"
 """
 

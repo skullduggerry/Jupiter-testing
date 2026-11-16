@@ -1,4 +1,4 @@
-"""The flake's modules (Jupiter-nixos' nixos/), evaluated by Nix for
+"""The installer's NixOS modules (nixos/), evaluated by Nix for
 hosts/example and for settings phase 1 could write: a whole system comes
 of them, and it is the one the settings describe (harness/nix.py evaluates;
 skipped without Nix and nixpkgs).

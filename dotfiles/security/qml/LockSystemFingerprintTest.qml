@@ -2,7 +2,7 @@ import QtQuick
 import "../shell/services"
 
 // The lock's fingerprint where the system declares the reader's stack
-// (/etc/pam.d/jupiter-fingerprint, as Jupiter-nixos does): that stack is
+// (/etc/pam.d/jupiter-fingerprint, as the installer does on NixOS): that stack is
 // run, and the shell's own pam/fingerprint.conf, here one that refuses
 // every finger, is not.
 TestCase {

@@ -1,5 +1,5 @@
-"""Phase 1 of Jupiter-nixos from the first question to nixos-install, with
-nothing real.
+"""Phase 1 on NixOS (jupiter/nixos/phase1.py) from the first question to
+nixos-install, with nothing real.
 
 PATH holds only a stand-in that records how each command was called (and
 answers the ones phase 1 reads), /mnt is a temporary folder, the repo phase
@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from jupiter_nixos import phase1
+from jupiter import phase1 as disks
+from jupiter.nixos import phase1
 
 from harness.disks import KBD_MODEL_MAP, LSBLK
 
@@ -100,22 +101,25 @@ class Installing(unittest.TestCase):
         connections.mkdir()
         (connections / "home.nmconnection").write_text(WIFI)
         # The repo phase 1 copies, small: a flake and the package.
-        self.repo = tmp / "Jupiter-nixos"
-        (self.repo / "jupiter_nixos").mkdir(parents=True)
+        self.repo = tmp / "Jupiter-installer"
+        (self.repo / "jupiter").mkdir(parents=True)
         (self.repo / "flake.nix").write_text("{ }\n")
-        (self.repo / "jupiter_nixos/__main__.py").write_text("")
-        (self.repo / "jupiter_nixos/__pycache__").mkdir()
+        (self.repo / "jupiter/__main__.py").write_text("")
+        (self.repo / "jupiter/__pycache__").mkdir()
+        # The disks' steps are Arch's phase 1's, by its own constants.
         for name, value in {
             "MNT": self.mnt,
             "EFI": tmp / "efi",
             "ERASED": tmp / "jupiter-erased",
+        }.items():
+            self.enterContext(mock.patch.object(disks, name, value))
+        for name, value in {
             "ZONE_TAB": tmp / "zone.tab",
             "OS_RELEASE": tmp / "os-release",
             "ISO_CONNECTIONS": connections,
             "INSTALLER_DIR": self.repo,
         }.items():
             self.enterContext(mock.patch.object(phase1, name, value))
-        self.enterContext(mock.patch.object(phase1, "live", return_value=True))
         self.enterContext(
             mock.patch.object(phase1, "gpus", return_value=["nvidia"])
         )
@@ -259,7 +263,7 @@ class Encrypted(Encrypting):
         run = [call[:-1] for call in calls]
         copy = str(self.copy)
         self.assertTrue((self.copy / "flake.nix").exists())
-        self.assertFalse((self.copy / "jupiter_nixos/__pycache__").exists())
+        self.assertFalse((self.copy / "jupiter/__pycache__").exists())
         self.assertEqual(
             (self.copy / "hosts/box/hardware-configuration.nix").read_text(),
             HARDWARE,
@@ -380,14 +384,6 @@ class Unencrypted(Declining):
 
 
 class Refusing(Installing):
-    def test_outside_the_iso(self) -> None:
-        with (
-            mock.patch.object(phase1, "live", return_value=False),
-            self.assertRaisesRegex(SystemExit, "NixOS installation ISO"),
-        ):
-            phase1.main()
-        self.assertEqual(self.calls_made(), [])
-
     def test_without_uefi(self) -> None:
         shutil.rmtree(self.mnt.parent / "efi")
         with self.assertRaisesRegex(SystemExit, "UEFI"):

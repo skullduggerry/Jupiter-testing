@@ -4,33 +4,24 @@
 #     scripts/ci-repos.sh CHECKOUT BRANCH
 #
 # CHECKOUT is the repo the push was to, checked out in the current folder; it
-# is renamed after what it holds (Jupiter-dotfiles, Jupiter-installer for
-# Arch, Jupiter-nixos, Jupiter-testing), and the others are cloned beside it,
-# so check.sh finds all four where it looks. Each comes from BRANCH where its
-# repo has a branch of that name holding that kind, else from the default
-# branch: work spread over the repos on one branch is checked together, and
-# both installers are always there. A clone is told by its files, never by
-# its repo's name: while NixOS is a branch of Jupiter-installer, that branch
-# cannot stand in for the Arch installer, nor main for NixOS.
-#
-# NixOS comes from Jupiter-nixos where that repo exists, else from the
-# branch of Jupiter-installer named by NIXOS_BRANCH. JUPITER_GITHUB (the
-# repos' owner on GitHub) stands in for GitHub in the tests.
+# is renamed after what it holds (Jupiter-dotfiles, Jupiter-installer,
+# Jupiter-testing), and the others are cloned beside it, so check.sh finds
+# all three where it looks. Each comes from BRANCH where its repo has a
+# branch of that name holding that kind, else from the default branch: work
+# spread over the repos on one branch is checked together. A clone is told by
+# its files, not its repo's name. JUPITER_GITHUB (the repos' owner on
+# GitHub) stands in for GitHub in the tests.
 set -euo pipefail
 
 checkout=${1:?usage: ci-repos.sh CHECKOUT BRANCH}
 branch=${2:?usage: ci-repos.sh CHECKOUT BRANCH}
 github=${JUPITER_GITHUB:-https://github.com/skullduggerry}
-# Until Jupiter-nixos exists: the branch of Jupiter-installer it lives on.
-nixos_branch=${NIXOS_BRANCH:-ccr-a6d5cab5-1nuyph}
 export GIT_TERMINAL_PROMPT=0
 
 # What a clone holds, by what only that kind has (check.sh's kind_of).
 kind_of() {
     if [[ -f $1/.config/quickshell/shell.qml ]]; then
         echo dotfiles
-    elif [[ -f $1/flake.nix && -f $1/jupiter_nixos/__main__.py ]]; then
-        echo nixos
     elif [[ -f $1/jupiter/__main__.py ]]; then
         echo installer
     elif [[ -f $1/harness/qml.py ]]; then
@@ -86,6 +77,3 @@ echo "Jupiter-$kind: the push, $branch $(git -C "Jupiter-$kind" rev-parse --shor
     fetch testing "Jupiter-testing@$branch" "Jupiter-testing@"
 [[ -d Jupiter-installer ]] ||
     fetch installer "Jupiter-installer@$branch" "Jupiter-installer@"
-[[ -d Jupiter-nixos ]] ||
-    fetch nixos "Jupiter-nixos@$branch" "Jupiter-nixos@" \
-        "Jupiter-installer@$branch" "Jupiter-installer@$nixos_branch"

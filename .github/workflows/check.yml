@@ -1,21 +1,22 @@
-# Checks every push and pull request against both setups, Arch and NixOS,
-# whichever repo it is to: a change to one repo that breaks either is caught
-# here. The same file in every Jupiter repo (testing/test_ci.py holds them to
+# Checks every push and pull request against both setups the installer
+# supports, Arch and NixOS, whichever repo it is to: a change to one repo
+# that breaks either is caught here. The same file in every Jupiter repo (testing/test_ci.py holds them to
 # it); daily on main as well, as Arch's packages and nixpkgs move between
 # pushes.
 #
 # Both jobs lay the repos out with Jupiter-testing's scripts/ci-repos.sh: the
-# pushed one, and the others from the same branch where they have it, each
-# by what it holds, so the Arch installer and NixOS are both always there.
+# pushed one, and the others from the same branch where they have it.
 #
 #   arch   in an Arch container, as the desktop: the pushed repo's formatting
 #          and linters, then every suite of every repo (./check.sh test all),
-#          NixOS's evaluated by Nix against the flake's own nixpkgs.
+#          the installer's on Arch and on NixOS, its NixOS modules evaluated
+#          by Nix against the flake's own nixpkgs.
 #          Privileged: the suites' stand-ins use unshare.
-#   nixos  on the runner's Nix: the flake, with the pushed dotfiles and real
-#          inputs, evaluated and its login helpers built; the dotfiles'
-#          Hyprland config checked by NixOS's Hyprland, and their QML suites
-#          run in NixOS's Quickshell, as these versions differ from Arch's.
+#   nixos  on the runner's Nix: the installer's flake, with the pushed
+#          dotfiles and real inputs, evaluated and its login helpers built;
+#          the dotfiles' Hyprland config checked by NixOS's Hyprland, and
+#          their QML suites run in NixOS's Quickshell, as these versions
+#          differ from Arch's.
 name: Check
 
 on:
@@ -52,7 +53,7 @@ jobs:
         # stubs, the VM's firmware), and what an installed desktop has that the
         # suites use: neovim's Lua for lua-language-server, the GNOME schemas,
         # Kvantum's KvMojave, cmp. [multilib] for the package-list test; nix
-        # for Jupiter-nixos (nixfmt, which Arch has no package of, comes from it).
+        # for the installer's NixOS side (nixfmt, which Arch has no package of, comes from it).
         run: |
           printf '[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
           pacman -Syu --noconfirm --needed git sudo rust \
@@ -115,7 +116,7 @@ jobs:
         id: nixpkgs
         run: |
           nixpkgs=$(sudo -u ci -H env NIX_CONFIG="$NIX" nix eval --raw --impure --expr \
-            "(builtins.getFlake \"path:$GITHUB_WORKSPACE/Jupiter-nixos\").inputs.nixpkgs.outPath")
+            "(builtins.getFlake \"path:$GITHUB_WORKSPACE/Jupiter-installer\").inputs.nixpkgs.outPath")
           echo "JUPITER_NIXPKGS=$nixpkgs" >> "$GITHUB_ENV"
           # nixfmt for the lint, from the same nixpkgs.
           sudo -u ci -H env NIX_CONFIG="$NIX" nix build --impure --out-link /home/ci/tools/nixfmt \
@@ -166,7 +167,7 @@ jobs:
       - name: Evaluate the system with these dotfiles
         # hosts/example, a whole system, with lanzaboote and nixpkgs as the
         # flake has them and the dotfiles as laid out (not the flake's pin).
-        working-directory: Jupiter-nixos
+        working-directory: Jupiter-installer
         run: |
           flake() { nix "$@" --override-input dotfiles "path:$GITHUB_WORKSPACE/Jupiter-dotfiles"; }
           host=path:.#nixosConfigurations.example

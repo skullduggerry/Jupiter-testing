@@ -2,13 +2,12 @@
 # The suites, under coverage of the repos they test.
 #
 #     scripts/test.sh                  every repo's, the tested ones at their floors
-#     scripts/test.sh dotfiles         one repo's (dotfiles, installer, nixos or testing)
+#     scripts/test.sh dotfiles         one repo's (dotfiles, installer or testing)
 #     scripts/test.sh --security       the security suites alone, no coverage floor
 #     scripts/test.sh dotfiles -k Lock the tests matching a pattern (no floor)
 #
-# The repos are found next to this one, or at JUPITER_DOTFILES,
-# JUPITER_INSTALLER and JUPITER_NIXOS; testing/ holds the harness's own
-# tests. harness/run.py
+# The repos are found next to this one, or at JUPITER_DOTFILES and
+# JUPITER_INSTALLER; testing/ holds the harness's own tests. harness/run.py
 # runs every test in a process of its own, as many at once as there are
 # CPUs. Every Python process a test starts measures itself (coverage's .pth
 # file reads COVERAGE_PROCESS_START), and every bash script notes that it ran
@@ -21,19 +20,17 @@ testing=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 2
 cd "$testing" || exit 2
 JUPITER_DOTFILES=$(realpath "${JUPITER_DOTFILES:-$testing/../Jupiter-dotfiles}" 2>/dev/null)
 JUPITER_INSTALLER=$(realpath "${JUPITER_INSTALLER:-$testing/../Jupiter-installer}" 2>/dev/null)
-JUPITER_NIXOS=$(realpath -m "${JUPITER_NIXOS:-$testing/../Jupiter-nixos}")
-export JUPITER_DOTFILES JUPITER_INSTALLER JUPITER_NIXOS
+export JUPITER_DOTFILES JUPITER_INSTALLER
 
 # Each tested repo's floor: the share of its Python lines the suites run.
-# Jupiter-nixos is new: its floor rises as its tests do.
-declare -A floors=([dotfiles]=90 [installer]=95 [nixos]=85)
+declare -A floors=([dotfiles]=90 [installer]=95)
 
 targets=()
 security=0
 run_args=()
 while (($#)); do
     case $1 in
-        dotfiles | installer | nixos | testing) targets+=("$1") ;;
+        dotfiles | installer | testing) targets+=("$1") ;;
         --security) security=1 ;;
         -k)
             run_args+=(-k "${2-}")
@@ -46,14 +43,10 @@ while (($#)); do
     esac
     shift
 done
-# Every repo; Jupiter-nixos where it is cloned, as it is new.
-if ((! ${#targets[@]})); then
-    targets=(dotfiles installer testing)
-    [[ -d $JUPITER_NIXOS ]] && targets+=(nixos)
-fi
+((${#targets[@]})) || targets=(dotfiles installer testing)
 floor=$((! security && ! ${#run_args[@]}))
 
-declare -A repos=([dotfiles]=$JUPITER_DOTFILES [installer]=$JUPITER_INSTALLER [nixos]=$JUPITER_NIXOS [testing]=$testing)
+declare -A repos=([dotfiles]=$JUPITER_DOTFILES [installer]=$JUPITER_INSTALLER [testing]=$testing)
 for target in "${targets[@]}"; do
     if [[ ! -d ${repos[$target]} ]]; then
         echo "test.sh: no Jupiter-$target next to this repo; clone it there or set JUPITER_${target^^}" >&2
@@ -114,7 +107,7 @@ if ((floor)); then
     export COVERAGE_FILE=$tmp/coverage/data
     coverage combine --quiet --rcfile=pyproject.toml "$tmp/coverage" 2>/dev/null
     coverage json --quiet --rcfile=pyproject.toml -o "$tmp/coverage.json" \
-        --include="$JUPITER_DOTFILES/*,$JUPITER_INSTALLER/*,$JUPITER_NIXOS/*" 2>/dev/null ||
+        --include="$JUPITER_DOTFILES/*,$JUPITER_INSTALLER/*" 2>/dev/null ||
         echo '{"files": {}}' >"$tmp/coverage.json"
     for target in "${targets[@]}"; do
         [[ -n ${floors[$target]-} ]] || continue
@@ -123,11 +116,12 @@ if ((floor)); then
         repo=${repos[$target]}
         # A helper no test runs is a feature nothing checks: give it a test.
         # The files there are, a deletion not yet committed left out.
-        case $target in
-            dotfiles) spec=('*.py' '*.sh') ;;
-            nixos) spec=('jupiter_nixos/*.py' 'nixos/*.py' ':!jupiter_nixos/__init__.py') ;;
-            *) spec=('jupiter/*.py' ':!jupiter/__init__.py') ;;
-        esac
+        if [[ $target == dotfiles ]]; then
+            spec=('*.py' '*.sh')
+        else
+            # Arch's phases and NixOS's (jupiter/nixos/, nixos/*.py).
+            spec=('jupiter/*.py' 'nixos/*.py' ':!jupiter/__init__.py' ':!jupiter/nixos/__init__.py')
+        fi
         mapfile -t helpers < <(git -C "$repo" ls-files --cached --others --exclude-standard -- "${spec[@]}" |
             while read -r f; do [[ -f $repo/$f ]] && printf '%s\n' "$f"; done)
         if python3 - "$tmp/coverage.json" "$tmp/ran" "$repo" "${helpers[@]}" >"$tmp/out" <<'EOF'

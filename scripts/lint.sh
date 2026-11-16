@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # One repo's formatting and linters, by that repo's own settings.
 #
-#     scripts/lint.sh KIND PATH            KIND is dotfiles, installer, nixos or testing
+#     scripts/lint.sh KIND PATH            KIND is dotfiles, installer or testing
 #     scripts/lint.sh KIND PATH --fix      format, and apply the safe fixes, first
 #     scripts/lint.sh KIND PATH --staged   only the files git has staged
 #
 # check.sh runs this for each repo it checks, then the suites. The
 # tools run inside PATH, so they read its pyproject.toml, .editorconfig and
 # .luarc.json, which editors read too. Formatters: qmlformat, ruff, shfmt and
-# stylua, and nixfmt for Jupiter-nixos. Linters: qmllint (against Quickshell's types as
+# stylua, and nixfmt for the installer's NixOS side. Linters: qmllint (against Quickshell's types as
 # scripts/quickshell-types.py corrects them), ruff, mypy, shellcheck and, for
 # the dotfiles, lua-language-server and Hyprland's own config check, with the
 # project's rules besides (qmldirs, popup names, glyphs). See "Running" in
@@ -18,11 +18,11 @@ set -uo pipefail
 testing=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 2
 kind=${1-}
 repo=$(realpath -e "${2-}" 2>/dev/null) || {
-    echo "usage: lint.sh dotfiles|installer|nixos|testing PATH [--fix] [--staged]" >&2
+    echo "usage: lint.sh dotfiles|installer|testing PATH [--fix] [--staged]" >&2
     exit 2
 }
 shift 2
-[[ $kind == @(dotfiles|installer|nixos|testing) ]] || {
+[[ $kind == @(dotfiles|installer|testing) ]] || {
     echo "lint.sh: unknown repo kind: $kind" >&2
     exit 2
 }
@@ -32,10 +32,8 @@ cd "$repo" || exit 2
 PATH=/usr/lib/qt6/bin:$PATH
 dotfiles=$(realpath -m "${JUPITER_DOTFILES:-$testing/../Jupiter-dotfiles}")
 installer=$(realpath -m "${JUPITER_INSTALLER:-$testing/../Jupiter-installer}")
-nixos=$(realpath -m "${JUPITER_NIXOS:-$testing/../Jupiter-nixos}")
 [[ $kind == dotfiles ]] && dotfiles=$repo
 [[ $kind == installer ]] && installer=$repo
-[[ $kind == nixos ]] && nixos=$repo
 
 fix=0
 staged=0
@@ -60,7 +58,6 @@ case $kind in
             ["zsh"]=zsh
         )
         ;;
-    nixos) packages+=(["nixfmt"]=nixfmt) ;;
     testing) packages+=(["/usr/lib/qt6/bin/qmlformat"]=qt6-declarative) ;;
 esac
 missing=()
@@ -69,13 +66,7 @@ for tool in "${!packages[@]}"; do
 done
 if ((${#missing[@]})); then
     echo "Some tools are missing. Install them with:" >&2
-    # Arch has no nixfmt; Nix, which Jupiter-nixos needs anyway, has.
-    if [[ " ${missing[*]} " == *" nixfmt "* ]]; then
-        echo "    nix profile install nixpkgs#nixfmt" >&2
-        mapfile -t missing < <(printf '%s\n' "${missing[@]}" | grep -vx nixfmt)
-    fi
-    ((${#missing[@]})) &&
-        echo "    sudo pacman -S --needed $(printf '%s\n' "${missing[@]}" | sort -u | xargs)" >&2
+    echo "    sudo pacman -S --needed $(printf '%s\n' "${missing[@]}" | sort -u | xargs)" >&2
     exit 2
 fi
 
@@ -123,8 +114,7 @@ case $kind in
         mapfile -t lua < <(files '*.lua' ':!.config/wallust/templates/*')
         data_spec+=(':!.config/wallust/templates/*')
         ;;
-    installer) mapfile -t shell < <(files '*.sh') ;;
-    nixos)
+    installer)
         mapfile -t shell < <(files '*.sh')
         mapfile -t nix < <(files '*.nix')
         ;;
@@ -165,6 +155,11 @@ if ((${#lua[@]})); then
 fi
 
 section "formatting (qmlformat, ruff, shfmt, stylua, nixfmt)"
+# nixfmt is optional here, as Arch has no package of it; CI has it (from Nix).
+if ((${#nix[@]})) && ! command -v nixfmt >/dev/null; then
+    echo "  skip  nixfmt is not installed: ${#nix[@]} Nix files not checked (nix profile install nixpkgs#nixfmt)"
+    nix=()
+fi
 # Every file through its formatter, as many at once as there are CPUs; then
 # whatever differs is fixed or reported, in order.
 export -f formatted
@@ -318,7 +313,7 @@ if ((${#python[@]})); then
     ruff check --quiet --output-format concise "${python[@]}" >"$tmp/out" 2>&1 || failed "ruff"
     # The tests import the installers, and check their types with theirs.
     mypypath=
-    [[ $kind == testing ]] && mypypath=$installer:$nixos
+    [[ $kind == testing ]] && mypypath=$installer
     MYPYPATH=$mypypath mypy --no-error-summary "${python[@]}" >"$tmp/out" 2>&1 || failed "mypy"
 fi
 passed "${#python[@]} files"

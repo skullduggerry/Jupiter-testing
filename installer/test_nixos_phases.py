@@ -1,11 +1,11 @@
-"""Phases 2 and 3 of Jupiter-nixos against stand-in commands, in a throwaway
-home, and the entry point that runs them.
+"""Phases 2 to 4 on NixOS against stand-in commands, in a throwaway home,
+and the entry point that runs them on either system.
 
 sudo, systemctl, wallust, nixos-rebuild and fprintd-enroll only record how
 they were called. The root is not encrypted (findmnt), so the keyring and
-TPM steps leave it alone (their own tests: nixos/test_tpm.py,
-nixos/security/test_keyring.py), and there is no fingerprint reader unless
-a test gives one.
+TPM steps leave it alone (their own tests: test_nixos_tpm.py,
+security/test_keyring.py), and there is no fingerprint reader unless a test
+gives one. The installer is told it is on NixOS by a stand-in os-release.
 """
 
 import json
@@ -18,11 +18,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from jupiter_nixos import __main__ as entry
-from jupiter_nixos import common, dotfiles, system
-from jupiter_nixos.common import INSTALLER_DIR
+from jupiter import __main__ as entry
+from jupiter.common import INSTALLER_DIR
+from jupiter.distro import System as Distro
+from jupiter.nixos import common, dotfiles, system
 
 from harness import executable
+from installer import NIXOS
 
 RECORD = """#!/bin/sh
 echo "${0##*/} $*" >> "$CALLS"
@@ -68,6 +70,7 @@ class World(unittest.TestCase):
             "CALLS": str(self.calls),
             "DOTFILES_REPO": str(origin),
             "DOTFILES_PUSH_URL": PUSH_URL,
+            "JUPITER_OS_RELEASE": str(NIXOS),
         }
 
     def recorded(self) -> list[str]:
@@ -78,7 +81,7 @@ class Dotfiles(World):
     def jupiter(self, *phases: str, answers: str = "") -> list[str]:
         self.calls.write_text("")
         self.output = subprocess.run(
-            [sys.executable, "-m", "jupiter_nixos", *phases],
+            [sys.executable, "-m", "jupiter", *phases],
             cwd=INSTALLER_DIR,
             env=self.env,
             input=answers,
@@ -89,7 +92,7 @@ class Dotfiles(World):
         return self.recorded()
 
     def test_links_the_dotfiles_and_sets_up_around_them(self) -> None:
-        calls = self.jupiter("3")
+        calls = self.jupiter("4")
         config = self.home / ".config"
         self.assertEqual(
             (config / "hypr").readlink(), self.repo / ".config/hypr"
@@ -117,12 +120,12 @@ class Dotfiles(World):
         self.assertIn("The disk is not encrypted", self.output)
 
     def test_run_again_backs_up_what_was_in_the_way(self) -> None:
-        self.jupiter("3")
+        self.jupiter("4")
         kitty = self.home / ".config/kitty"
         kitty.unlink()
         kitty.mkdir()
         (kitty / "mine.conf").write_text("mine\n")
-        self.jupiter("3")
+        self.jupiter("4")
         self.assertTrue(kitty.is_symlink())
         [backup] = (self.home / ".dotfiles-backup").iterdir()
         self.assertEqual(
@@ -136,7 +139,7 @@ class Dotfiles(World):
         tools.mkdir()
         (tools / "git").symlink_to(shutil.which("git") or "git")
         self.env["PATH"] = f"{self.bin}:{tools}"
-        calls = self.jupiter("3")
+        calls = self.jupiter("4")
         self.assertNotIn("apply.sh", calls)
         self.assertIn("wallust is missing", self.output)
 
@@ -146,9 +149,9 @@ class Dotfiles(World):
             "#!/bin/sh\necho 'Device at /x'\necho 'User test has no fingers "
             "enrolled for Reader.'\n",
         )
-        calls = self.jupiter("3", answers="\n")
+        calls = self.jupiter("4", answers="\n")
         self.assertIn("fprintd-enroll", calls)
-        calls = self.jupiter("3", answers="n\n")
+        calls = self.jupiter("4", answers="n\n")
         self.assertNotIn("fprintd-enroll", calls)
 
     def test_a_finger_enrolled_already_is_not_asked_for(self) -> None:
@@ -156,7 +159,7 @@ class Dotfiles(World):
             self.bin / "fprintd-list",
             "#!/bin/sh\necho 'Device at /x'\necho ' - #0: right-index'\n",
         )
-        self.assertNotIn("fprintd-enroll", self.jupiter("3"))
+        self.assertNotIn("fprintd-enroll", self.jupiter("4"))
 
     def test_the_login_screen_through_roots_copy(self) -> None:
         installer = executable(self.tmp / "root/install-greeter.sh", "")
@@ -176,6 +179,7 @@ class System(World):
         for name in names:
             common.write_settings(hosts / name, {"hostname": name})
         self.enterContext(mock.patch.object(common, "HOSTS", hosts))
+        self.enterContext(mock.patch.object(system, "rebuilt", False))
         self.enterContext(
             mock.patch.object(system, "INSTALLER_DIR", hosts.parent)
         )
@@ -211,17 +215,25 @@ class System(World):
 
 
 class Entry(unittest.TestCase):
-    """python3 -m jupiter_nixos: which phases, as whom, and with a network."""
+    """python3 -m jupiter on NixOS: which phases, as whom, with a network;
+    the same entry point as Arch's (installer's test_main)."""
 
     def run_main(
         self, *argv: str, live: bool = False, root: bool = False
-    ) -> list[int]:
-        ran: list[int] = []
-        phases = {n: (lambda n=n: ran.append(n)) for n in entry.PHASES}
+    ) -> list[str]:
+        ran: list[str] = []
+        phases = {
+            n: (lambda n=n: ran.append(f"nixos {n}"))
+            for n in entry.NIXOS_PHASES
+        }
+        arch = {n: (lambda n=n: ran.append(f"arch {n}")) for n in entry.PHASES}
         with (
-            mock.patch.object(sys, "argv", ["jupiter_nixos", *argv]),
-            mock.patch.dict(entry.PHASES, phases),
-            mock.patch.object(entry, "live", return_value=live),
+            mock.patch.object(sys, "argv", ["jupiter", *argv]),
+            mock.patch.dict(entry.NIXOS_PHASES, phases),
+            mock.patch.dict(entry.PHASES, arch),
+            mock.patch.object(
+                entry, "detect", return_value=Distro("nixos", live)
+            ),
             mock.patch.object(entry, "online", return_value=True),
             mock.patch("os.geteuid", return_value=0 if root else 1000),
             mock.patch("builtins.print"),
@@ -230,25 +242,41 @@ class Entry(unittest.TestCase):
         return ran
 
     def test_the_default_phases(self) -> None:
-        self.assertEqual(self.run_main(live=True, root=True), [1])
-        self.assertEqual(self.run_main(), [2, 3])
-        self.assertEqual(self.run_main("3", "2"), [3, 2])
+        self.assertEqual(self.run_main(live=True, root=True), ["nixos 1"])
+        self.assertEqual(self.run_main(), ["nixos 3", "nixos 4"])
+        self.assertEqual(self.run_main("4", "2"), ["nixos 4", "nixos 2"])
 
-    def test_phases_2_and_3_refuse_root(self) -> None:
-        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
-            self.run_main("2", root=True)
+    def test_phases_2_to_4_refuse_root(self) -> None:
+        for phase in ("2", "3", "4"):
+            with (
+                self.subTest(phase=phase),
+                mock.patch("sys.stderr"),
+                self.assertRaises(SystemExit),
+            ):
+                self.run_main(phase, root=True)
 
-    def test_offline_phases_2_and_3_say_how_to_connect(self) -> None:
+    def test_phase_1_only_from_the_iso(self) -> None:
+        with (
+            mock.patch("sys.stderr") as stderr,
+            self.assertRaises(SystemExit),
+        ):
+            self.run_main("1")
+        said = "".join(call.args[0] for call in stderr.write.call_args_list)
+        self.assertIn("the NixOS installation ISO", said)
+
+    def test_offline_phases_say_how_to_connect(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             executable(Path(tmp, "nm-online"), "#!/bin/sh\nexit 1\n")
             with mock.patch.dict(os.environ, {"PATH": tmp}):
-                self.assertFalse(entry.online(on_iso=False))
-                self.assertTrue(entry.online(on_iso=True))
+                self.assertFalse(entry.online(live=False))
+                self.assertTrue(entry.online(live=True))
             with mock.patch.dict(os.environ, {"PATH": "/nonexistent"}):
-                self.assertTrue(entry.online(on_iso=False))
+                self.assertTrue(entry.online(live=False))
         with (
-            mock.patch.object(sys, "argv", ["jupiter_nixos", "2"]),
-            mock.patch.object(entry, "live", return_value=False),
+            mock.patch.object(sys, "argv", ["jupiter", "2"]),
+            mock.patch.object(
+                entry, "detect", return_value=Distro("nixos", False)
+            ),
             mock.patch.object(entry, "online", return_value=False),
             mock.patch("os.geteuid", return_value=1000),
             self.assertRaisesRegex(SystemExit, "nmtui"),
@@ -260,9 +288,11 @@ class Entry(unittest.TestCase):
             raise subprocess.CalledProcessError(1, ["nixos-rebuild", "x y"])
 
         with (
-            mock.patch.object(sys, "argv", ["jupiter_nixos", "2"]),
-            mock.patch.dict(entry.PHASES, {2: fail}),
-            mock.patch.object(entry, "live", return_value=False),
+            mock.patch.object(sys, "argv", ["jupiter", "2"]),
+            mock.patch.dict(entry.NIXOS_PHASES, {2: fail}),
+            mock.patch.object(
+                entry, "detect", return_value=Distro("nixos", False)
+            ),
             mock.patch.object(entry, "online", return_value=True),
             mock.patch("os.geteuid", return_value=1000),
             mock.patch("builtins.print"),
@@ -270,15 +300,27 @@ class Entry(unittest.TestCase):
         ):
             entry.main()
 
-    def test_the_iso_is_known_by_its_os_release(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            release = Path(tmp, "os-release")
-            with mock.patch.object(common, "OS_RELEASE", release):
-                self.assertFalse(common.live())
-                release.write_text("ID=nixos\nVARIANT_ID=installer\n")
-                self.assertTrue(common.live())
-                release.write_text("ID=nixos\nVARIANT_ID=installer-ish\n")
-                self.assertFalse(common.live())
+
+class Rebuild(World):
+    """Phases 2 and 3 are one rebuild on NixOS: once a run."""
+
+    def test_phases_2_and_3_rebuild_once(self) -> None:
+        hosts = self.tmp / "repo/hosts"
+        common.write_settings(hosts / "box", {"hostname": "box"})
+        with (
+            mock.patch.object(common, "HOSTS", hosts),
+            mock.patch.object(system, "INSTALLER_DIR", hosts.parent),
+            mock.patch.object(system, "rebuilt", False),
+            mock.patch.dict(os.environ, self.env),
+            mock.patch("socket.gethostname", return_value="box"),
+            mock.patch("builtins.print"),
+        ):
+            system.main()
+            system.main()
+        self.assertEqual(
+            self.recorded(),
+            [f"nixos-rebuild switch --sudo --flake {hosts.parent}#box"],
+        )
 
 
 if __name__ == "__main__":
