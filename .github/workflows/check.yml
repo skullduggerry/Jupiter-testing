@@ -1,0 +1,57 @@
+# Runs ./check.sh (Jupiter-testing's linters and suites) on every push and
+# pull request, in an Arch container, so the checks don't need a desktop.
+# The same file in every Jupiter repo: check.sh clones Jupiter-testing next
+# to the checkout where it isn't the repo itself. Privileged: the suites'
+# stand-ins use unshare.
+name: Check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+    env:
+      REPO: ${{ github.event.repository.name }}
+    steps:
+      - name: Install tools
+        # What Jupiter-testing's lint.sh and test.sh ask for, with the type
+        # stubs Jupiter-installer's packages/pacman.txt lists for mypy.
+        run: |
+          pacman -Syu --noconfirm --needed git sudo rust \
+            ruff mypy python-types-python-dateutil python-pygobject-stubs \
+            shellcheck shfmt stylua lua lua-language-server zsh \
+            qt6-declarative hyprland quickshell uwsm \
+            python-coverage python-dateutil python-gobject python-pyxdg \
+            util-linux file xdg-user-dirs
+      - name: Add an unprivileged user
+        # Root reads every file, which the permission checks rely on not doing.
+        run: useradd -m ci
+      - if: env.REPO == 'Jupiter-dotfiles'
+        uses: actions/cache@v4
+        with:
+          path: /home/ci/.cargo
+          key: cargo-wallust-3.5.1
+      - name: Install wallust
+        # Built by cargo, as on the desktop (apply.sh looks in ~/.cargo/bin).
+        if: env.REPO == 'Jupiter-dotfiles'
+        run: |
+          chown -R ci: /home/ci
+          sudo -u ci -H cargo install --locked wallust --version 3.5.1
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ github.event.repository.name }}
+      - name: Check
+        run: |
+          chown -R ci: "$GITHUB_WORKSPACE"
+          cd "$REPO"
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" ./check.sh
