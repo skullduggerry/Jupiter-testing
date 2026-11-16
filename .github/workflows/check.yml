@@ -23,9 +23,11 @@ jobs:
       REPO: ${{ github.event.repository.name }}
     steps:
       - name: Install tools
-        # What Jupiter-testing's lint.sh and test.sh ask for, plus what
+        # What Jupiter-testing's lint.sh and test.sh ask for, what
         # Jupiter-installer's packages/pacman.txt lists for the checks (mypy's
-        # stubs, the VM's firmware); [multilib] for the package-list test.
+        # stubs, the VM's firmware), and what an installed desktop has that the
+        # suites use: neovim's Lua for lua-language-server, the GNOME schemas,
+        # Kvantum's KvMojave, cmp. [multilib] for the package-list test.
         run: |
           printf '[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
           pacman -Syu --noconfirm --needed git sudo rust \
@@ -33,7 +35,10 @@ jobs:
             shellcheck shfmt stylua lua lua-language-server zsh \
             qt6-declarative hyprland quickshell uwsm \
             python-coverage python-dateutil python-gobject python-pyxdg \
-            util-linux file xdg-user-dirs qemu-system-x86 swtpm edk2-ovmf
+            util-linux file xdg-user-dirs qemu-system-x86 swtpm edk2-ovmf \
+            neovim gsettings-desktop-schemas kvantum diffutils
+          # To compare with the desktop when a check passes there only.
+          pacman -Q quickshell qt6-declarative hyprland lua-language-server python
       - name: Add an unprivileged user
         # Root reads every file, which the permission checks rely on not doing.
         run: useradd -m ci
@@ -65,5 +70,8 @@ jobs:
             [ -d "$repo" ] || sudo -u ci -H git clone --quiet --depth 1 \
               "https://github.com/skullduggerry/$repo.git" "$repo"
           done
+          # A session's runtime folder, which Hyprland's config check insists on.
+          run=/run/user/$(id -u ci)
+          install -d -m 700 -o ci "$run"
           cd "$REPO"
-          sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" ./check.sh
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" XDG_RUNTIME_DIR="$run" ./check.sh

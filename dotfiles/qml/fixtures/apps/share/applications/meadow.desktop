@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Meadow
+Exec=meadow %U
+Icon=meadow

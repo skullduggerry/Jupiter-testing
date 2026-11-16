@@ -17,9 +17,10 @@ import os
 import subprocess
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
-from harness import DOTFILES, temporary
+from harness import DOTFILES, executable, temporary
 
 SCRIPT = DOTFILES / "scripts/uwsm-desktop-entries.py"
 UWSM = Path("/usr/share/uwsm/modules")
@@ -135,6 +136,15 @@ class DesktopEntries(unittest.TestCase):
             "kitty, with an X- group, needs none",
         )
         if (UWSM / "uwsm/main.py").exists():
+            # uwsm also wants the entry's program on PATH, which nextcloud
+            # is only where nextcloud-client is installed.
+            executable(self.root / "bin/nextcloud", "#!/bin/sh\n")
+            self.enterContext(
+                unittest.mock.patch.dict(
+                    os.environ,
+                    PATH=f"{self.root / 'bin'}:{os.environ['PATH']}",
+                )
+            )
             self.assertFalse(uwsm_takes(self.entry), "uwsm refuses the entry")
             self.assertTrue(uwsm_takes(self.copy), "uwsm takes the copy")
 

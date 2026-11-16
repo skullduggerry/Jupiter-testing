@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Cedar
+Exec=cedar %U
+Icon=cedar

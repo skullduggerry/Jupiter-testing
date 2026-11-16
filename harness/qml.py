@@ -61,7 +61,7 @@ TIMEOUT = 60  # seconds for one file
 SIGNATURE = "qmltest"
 RESULT = re.compile(r"\bqml: (PASS|FAIL|DONE|IGNORE)\b ?(.*)")
 PROBLEM = re.compile(r"^\s*(WARN|ERROR|FATAL|CRITICAL)\b")
-SPECIAL = {"pam.d", "greetd.json", "theme", "runtime", "bin"}
+SPECIAL = {"pam.d", "greetd.json", "theme", "runtime", "bin", "share"}
 IGNORE = shutil.ignore_patterns("__pycache__")
 
 
@@ -127,6 +127,9 @@ def environment(test: Path, root: Path, fixtures: Path) -> dict[str, str]:
     if (fixtures / "runtime").is_dir():
         shutil.copytree(fixtures / "runtime", runtime, dirs_exist_ok=True)
         env["HYPRLAND_INSTANCE_SIGNATURE"] = SIGNATURE
+    # The desktop entries a file sees are its own, never the machine's.
+    if (fixtures / "share").is_dir():
+        env["XDG_DATA_DIRS"] = str(fixtures / "share")
     if (fixtures / "theme").is_dir():
         theme = fixtures / "theme"
         for path in [*theme.rglob("*"), theme]:

@@ -80,7 +80,8 @@ the shell as `../shell/`, and the login screen as installed (with `style/`)
 as `../greeter/`. What a file runs with comes from `fixtures/<its name>/`:
 `pam.d/` (the sandbox's stacks), `greetd.json` (a stand-in greetd's
 scenario), `theme/`, `runtime/` (Hyprland's runtime folder, and a signature),
-`bin/` (its PATH), and anything else beside the test (a stand-in
+`bin/` (its PATH), `share/` (its `XDG_DATA_DIRS`: the desktop entries
+it sees), and anything else beside the test (a stand-in
 `pam/fingerprint.conf`, `greeter-env.py`). A fixture shared by several files
 is a link into a folder of its own (`fixtures/lock/`). Text files get
 `@FIXTURES@`, `@SECRET@` and `@PYTHON@` filled in. A file fails on a FAIL,
