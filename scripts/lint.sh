@@ -69,7 +69,13 @@ for tool in "${!packages[@]}"; do
 done
 if ((${#missing[@]})); then
     echo "Some tools are missing. Install them with:" >&2
-    echo "    sudo pacman -S --needed $(printf '%s\n' "${missing[@]}" | sort -u | xargs)" >&2
+    # Arch has no nixfmt; Nix, which Jupiter-nixos needs anyway, has.
+    if [[ " ${missing[*]} " == *" nixfmt "* ]]; then
+        echo "    nix profile install nixpkgs#nixfmt" >&2
+        mapfile -t missing < <(printf '%s\n' "${missing[@]}" | grep -vx nixfmt)
+    fi
+    ((${#missing[@]})) &&
+        echo "    sudo pacman -S --needed $(printf '%s\n' "${missing[@]}" | sort -u | xargs)" >&2
     exit 2
 fi
 

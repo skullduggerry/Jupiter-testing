@@ -52,12 +52,12 @@ jobs:
         # stubs, the VM's firmware), and what an installed desktop has that the
         # suites use: neovim's Lua for lua-language-server, the GNOME schemas,
         # Kvantum's KvMojave, cmp. [multilib] for the package-list test; nix
-        # and nixfmt for Jupiter-nixos.
+        # for Jupiter-nixos (nixfmt, which Arch has no package of, comes from it).
         run: |
           printf '[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
           pacman -Syu --noconfirm --needed git sudo rust \
             ruff mypy python-types-python-dateutil python-pygobject-stubs \
-            shellcheck shfmt stylua lua lua-language-server zsh nixfmt nix actionlint \
+            shellcheck shfmt stylua lua lua-language-server zsh nix actionlint \
             qt6-declarative hyprland quickshell uwsm \
             python-coverage python-dateutil python-gobject python-pyxdg \
             util-linux file xdg-user-dirs qemu-system-x86 swtpm edk2-ovmf \
@@ -94,6 +94,7 @@ jobs:
         with:
           path: checkout
       - name: Lay out the repos
+        id: layout
         run: |
           chown -R ci: "$GITHUB_WORKSPACE"
           as_ci() { sudo -u ci -H env GIT_TERMINAL_PROMPT=0 "$@"; }
@@ -111,10 +112,14 @@ jobs:
       - name: Find the flake's nixpkgs
         # The NixOS suites evaluate the modules against the nixpkgs the flake
         # pins (the newest unstable while it has no flake.lock).
+        id: nixpkgs
         run: |
           nixpkgs=$(sudo -u ci -H env NIX_CONFIG="$NIX" nix eval --raw --impure --expr \
             "(builtins.getFlake \"path:$GITHUB_WORKSPACE/Jupiter-nixos\").inputs.nixpkgs.outPath")
           echo "JUPITER_NIXPKGS=$nixpkgs" >> "$GITHUB_ENV"
+          # nixfmt for the lint, from the same nixpkgs.
+          sudo -u ci -H env NIX_CONFIG="$NIX" nix build --impure --out-link /home/ci/tools/nixfmt \
+            --expr "(import $nixpkgs { }).nixfmt"
         env:
           NIX: |
             experimental-features = nix-command flakes
@@ -123,13 +128,14 @@ jobs:
       - name: Lint the pushed repo
         run: |
           cd "$PUSHED"
-          sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nixfmt/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
             ./check.sh lint
       - name: Test every repo, Arch and NixOS
-        if: success() || failure()
+        # After a failed lint too, while the repos are there to test.
+        if: (success() || failure()) && steps.nixpkgs.outcome == 'success'
         run: |
           cd Jupiter-testing
-          sudo -u ci -H env PATH="/home/ci/.cargo/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nixfmt/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
             JUPITER_NIXPKGS="$JUPITER_NIXPKGS" NIX_CONFIG="$NIX" ./check.sh test all
         env:
           NIX: |
@@ -172,7 +178,7 @@ jobs:
             "$host.config.system.build.jupiter.diskEncrypted" \
             "$host.config.system.build.jupiter.greeterRoot"
           for name in hyprland quickshell python3; do
-            echo "$name=$(flake build --no-link --print-out-paths "$host.pkgs.$name" | head -1)" >> "$GITHUB_ENV"
+            echo "$name=$(flake build --no-link --print-out-paths "$host.pkgs.$name.out")" >> "$GITHUB_ENV"
           done
       - name: Hyprland's config check, with NixOS's Hyprland
         run: |
