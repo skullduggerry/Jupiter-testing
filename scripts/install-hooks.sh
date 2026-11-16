@@ -15,5 +15,5 @@ for repo in "$testing" "${JUPITER_DOTFILES:-$testing/../Jupiter-dotfiles}" \
         echo "no clone at $repo, skipped"
     fi
 done
-echo "  pre-commit  formats staged files, then checks that repo"
-echo "  pre-push    checks that repo, no auto-fix"
+echo "  pre-commit  formats and lints staged files (no suites)"
+echo "  pre-push    lints and tests that repo, no auto-fix"

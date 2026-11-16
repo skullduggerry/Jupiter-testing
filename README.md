@@ -23,7 +23,7 @@ or point `JUPITER_DOTFILES` and `JUPITER_INSTALLER` at wherever they are. The to
 ./check.sh check all             # all three repos
 ./check.sh lint dotfiles         # or test: one half, one repo or a clone's path (--fix formats first)
 ./check.sh test --security       # the security suites alone (-k Lock: tests by name)
-scripts/install-hooks.sh         # once: check on every commit and push, in all three clones
+scripts/install-hooks.sh         # once: lint on commit, lint and test on push, in all three clones
 ```
 
 Jupiter-dotfiles and Jupiter-installer have a `check.sh` of their own that takes the same arguments and hands them to this one.

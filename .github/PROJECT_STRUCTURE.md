@@ -16,7 +16,7 @@ write tests: `.github/llm.md`.
 | `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`): the rig (`rig.py`), installing with phases 1 and 2 (`install.py`) and the scenarios (`test_install.py`) |
 | `check.sh` | the one command, which every repo's `check.sh` hands over to: each repo's lint, then the suites |
 | `scripts/` | `lint.sh` (one repo's formatting and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, and the dotfiles' lint helpers: `quickshell-types.py` (Quickshell's type information, corrected for qmllint) and `pasted-glyphs.py` |
-| `.githooks/` | pre-commit and pre-push, which `install-hooks.sh` points all three clones at; they check whichever repo they run in |
+| `.githooks/` | pre-commit (format + lint staged) and pre-push (lint + suites), which `install-hooks.sh` points all three clones at; they check whichever repo they run in |
 | `pyproject.toml`, `.editorconfig` | ruff, mypy (strict) and coverage for this repo; the tested repos keep their own, which `lint.sh` reads there |
 
 Each test module also runs alone: `python3 -m unittest dotfiles.test_shelf`.
