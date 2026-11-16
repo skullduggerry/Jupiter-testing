@@ -44,6 +44,8 @@ greeter_env = load(GREETER_ENV)
 JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9"
 ROOT_ONLY = "ROOT-ONLY-CONTENT"
 OWNER = 1000
+# Who the stacks are run for: whoever runs the tests.
+USER = os.environ.get("USER", "nobody")
 
 
 @qml.files(QML, "Greeter*Test.qml")
@@ -162,6 +164,15 @@ class Greetd(unittest.TestCase):
         )
 
 
+# The fingers' own count of misses, apart from the password's, and what the
+# stack says once the reader is no longer asked.
+FINGERS = ["dir=/var/lib/faillock-finger", "deny=5"]
+MISSED = ["pam_faillock.so", "authfail", *FINGERS]
+MATCHED = ["pam_faillock.so", "authsucc", *FINGERS]
+READER_RULE = ["pam_fprintd.so", "max-tries=1", "timeout=5"]
+REFUSED = "Fingerprint not recognised: type the password"
+
+
 class Stacks(unittest.TestCase):
     """The PAM stacks greetd logs in with, which install-greeter.sh puts in
     /etc/pam.d: the system's own, and gnome-keyring's optional lines."""
@@ -184,7 +195,7 @@ class Stacks(unittest.TestCase):
                 [
                     "auth",
                     "[success=ok",
-                    "default=1]",
+                    "default=10]",
                     "pam_exec.so",
                     "quiet",
                     "expose_authtok",
@@ -192,13 +203,42 @@ class Stacks(unittest.TestCase):
                 ],
                 [
                     "auth",
-                    "[success=done",
-                    "default=die]",
-                    "pam_fprintd.so",
-                    "max-tries=3",
-                    "timeout=5",
+                    "[success=2",
+                    "default=ignore]",
+                    "pam_faillock.so",
+                    "preauth",
+                    "silent",
+                    *FINGERS,
                 ],
+                ["auth", "[default=ignore]", "pam_echo.so", *REFUSED.split()],
+                ["auth", "requisite", "pam_deny.so"],
+                [
+                    "auth",
+                    "[success=5",
+                    "maxtries=ignore",
+                    "default=die]",
+                    *READER_RULE,
+                ],
+                ["auth", "[ignore=ignore", "default=die]", *MISSED],
+                [
+                    "auth",
+                    "[success=3",
+                    "maxtries=ignore",
+                    "default=die]",
+                    *READER_RULE,
+                ],
+                ["auth", "[ignore=ignore", "default=die]", *MISSED],
+                [
+                    "auth",
+                    "[success=1",
+                    "maxtries=bad",
+                    "default=die]",
+                    *READER_RULE,
+                ],
+                ["auth", "[default=die]", *MISSED],
+                ["auth", "[success=done", "default=die]", *MATCHED],
                 ["auth", "include", "system-local-login"],
+                ["-auth", "optional", *MATCHED],
                 [
                     "auth",
                     "[success=1",
@@ -209,6 +249,7 @@ class Stacks(unittest.TestCase):
                 ],
                 ["-auth", "optional", "pam_gnome_keyring.so"],
                 ["account", "include", "system-local-login"],
+                ["-account", "optional", "pam_faillock.so", *FINGERS],
                 ["session", "include", "system-local-login"],
                 ["-session", "optional", "pam_gnome_keyring.so", "auto_start"],
             ],
@@ -237,14 +278,26 @@ class Stacks(unittest.TestCase):
                     )
                     if rule[1] == "optional":
                         self.assertTrue(rule[0].startswith("-"), "may fail")
-                    # Only the reader may end the stack early; the empty
-                    # answer's check may only skip the reader or not, and
-                    # the disk's only gnome-keyring's password line, last.
+                    # Only a finger that matched may end the stack early;
+                    # the empty answer's check may only skip the reader's
+                    # lines, all of them, or not, and the disk's only
+                    # gnome-keyring's password line, last.
                     if "pam_exec.so" in rule and "expose_authtok" in rule:
                         self.assertEqual(
-                            rule[1:3], ["[success=ok", "default=1]"]
+                            rule[1:3], ["[success=ok", "default=10]"]
                         )
                         self.assertEqual(rule[-1], "/etc/greetd/finger-asked")
+                        self.assertEqual(
+                            rules[index + 11],
+                            ["auth", "include", "system-local-login"],
+                            "a typed password goes to its check",
+                        )
+                        skipped = rules[index + 1 : index + 11]
+                        self.assertEqual(
+                            [r for r in rules if "pam_fprintd.so" in r],
+                            [r for r in skipped if "pam_fprintd.so" in r],
+                            "and past every reader",
+                        )
                     elif "pam_exec.so" in rule:
                         self.assertEqual(
                             rule[1:3], ["[success=1", "default=ignore]"]
@@ -262,9 +315,40 @@ class Stacks(unittest.TestCase):
                                 for r in rules[index + 2 :]
                             )
                         )
+                    # done: the fingers' count cleared, which only a
+                    # reader's success jumps to; a miss never jumps.
                     if any("done" in word for word in rule):
-                        self.assertEqual(rule[3], "pam_fprintd.so")
-                        self.assertEqual(rule[2], "default=die]")
+                        self.assertEqual(
+                            rule[1:],
+                            ["[success=done", "default=die]", *MATCHED],
+                        )
+                    if "pam_fprintd.so" in rule:
+                        jump = int(rule[1].removeprefix("[success="))
+                        self.assertEqual(
+                            rules[index + jump + 1],
+                            [
+                                "auth",
+                                "[success=done",
+                                "default=die]",
+                                *MATCHED,
+                            ],
+                        )
+                        self.assertIn(
+                            rule[2], ("maxtries=ignore", "maxtries=bad")
+                        )
+                        self.assertEqual(rule[3], "default=die]")
+                        self.assertEqual(
+                            rule[4:], READER_RULE, "one try a line"
+                        )
+                        # Its miss is counted by the next line, before
+                        # anything else is asked.
+                        self.assertEqual(
+                            rules[index + 1][-len(MISSED) :], MISSED
+                        )
+                    # Nothing but the fingers' own count is ever cleared
+                    # or added to here: the password's is system-auth's.
+                    if "pam_faillock.so" in rule:
+                        self.assertEqual(rule[-2:], FINGERS)
 
 
 # A stand-in reader: says what pam_fprintd says, and matches once the test
@@ -302,10 +386,12 @@ session required pam_permit.so
 @unittest.skipIf(pam.available(), pam.available())
 class Conversations(unittest.TestCase):
     """etc/pam.d/greetd as greetd runs it, in harness/pam.py's sandbox: the
-    password's question once, an empty answer to the reader alone. The
-    reader is a stand-in in place of pam_fprintd, finger-asked the repo's,
-    system-local-login a password check, disk-encrypted and gnome-keyring's
-    password line stand-ins too."""
+    password's question once, an empty answer to the reader alone, and the
+    fingers that did not match counted by pam_faillock itself, in a folder
+    of the test's. The reader is a stand-in in place of pam_fprintd (a
+    script, or pam_debug returning pam_fprintd's codes), finger-asked the
+    repo's, system-local-login a password check, disk-encrypted and
+    gnome-keyring's password line stand-ins too."""
 
     def setUp(self) -> None:
         self.folder = temporary(self)
@@ -324,12 +410,47 @@ class Conversations(unittest.TestCase):
         (self.stacks / "system-local-login").write_text(
             LOCAL_LOGIN.format(folder=self.folder)
         )
+        # The fingers' count: pam_faillock's own, in a folder it makes.
+        self.tally = self.folder / "faillock-finger"
         self.stack(DOTFILES / "etc/greetd/finger-asked")
 
-    def stack(self, finger_asked: Path, reader: str = "") -> None:
+    def fingers(self, *codes: str) -> dict[str, Any]:
+        """A scan (an empty answer) whose tries end as codes say."""
+        self.stack(
+            DOTFILES / "etc/greetd/finger-asked", fingers=" ".join(codes)
+        )
+        return self.login("")
+
+    def misses(self) -> int:
+        """The fingers that did not match, as faillock(8) lists them."""
+        listed = subprocess.run(
+            ["faillock", "--dir", str(self.tally), "--user", USER],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+        return sum(
+            line.rstrip().endswith(" V") for line in listed.splitlines()
+        )
+
+    def stack(
+        self, finger_asked: Path, reader: str = "", fingers: str = ""
+    ) -> None:
+        """The repo's stack with its stand-ins. reader: the module in place
+        of every pam_fprintd line (the stand-in reader by default).
+        fingers: what each of the three tries returns instead, as
+        pam_debug's names for PAM's codes: "maxtries" a finger that did not
+        match, "authinfo_unavail" a timeout, "success" one that matched."""
         reader = reader or f"pam_exec.so quiet stdout {self.folder}/reader"
         text = (DOTFILES / "etc/pam.d/greetd").read_text()
-        text = text.replace("pam_fprintd.so max-tries=3 timeout=5", reader)
+        rule = " ".join(READER_RULE)
+        self.assertEqual(text.count(rule), 3, "three tries")
+        for code in fingers.split() or [""] * 3:
+            module = f"pam_debug.so auth={code}" if code else reader
+            text = text.replace(rule, module, 1)
+        tally = " ".join(FINGERS)
+        self.assertEqual(text.count(tally), 7, "one count for all")
+        text = text.replace(tally, f"dir={self.tally} deny=5")
         text = text.replace("/etc/greetd/finger-asked", str(finger_asked))
         text = text.replace(
             "/etc/greetd/disk-encrypted", f"{self.folder}/disk"
@@ -352,7 +473,7 @@ class Conversations(unittest.TestCase):
                 "python3",
                 str(TESTING / "harness/converse.py"),
                 "greetd",
-                os.environ.get("USER", "nobody"),
+                USER,
             ),
             input=json.dumps(list(answers)),
             capture_output=True,
@@ -389,13 +510,78 @@ class Conversations(unittest.TestCase):
         )
         self.assertEqual(self.reads(), 1)
 
-    def test_a_finger_that_does_not_match_fails_uncounted(self) -> None:
+    def test_a_reader_that_fails_ends_the_login_uncounted(self) -> None:
         result = self.login("")
         self.assertNotEqual(result["authenticate"], 0)
-        self.assertEqual(self.reads(), 1)
+        self.assertEqual(self.reads(), 1, "no second try")
         self.assertFalse(
             (self.folder / "failures").exists(), "no wrong password"
         )
+        self.assertEqual(self.misses(), 0)
+
+    def test_a_timeout_is_not_counted(self) -> None:
+        # The greeter's own scan times out whenever nobody is there.
+        for _ in range(6):
+            result = self.fingers("authinfo_unavail", "success", "success")
+            self.assertNotEqual(result["authenticate"], 0)
+        self.assertEqual(self.misses(), 0)
+        self.assertEqual(self.fingers("success")["authenticate"], 0)
+
+    def test_every_finger_that_does_not_match_is_counted(self) -> None:
+        result = self.fingers("maxtries", "maxtries", "maxtries")
+        self.assertNotEqual(result["authenticate"], 0)
+        self.assertEqual(self.misses(), 3)
+        self.assertFalse(
+            (self.folder / "failures").exists(), "no wrong password"
+        )
+
+    def test_misses_before_a_timeout_are_counted(self) -> None:
+        # Two misses, then waiting the third try out: pam_fprintd with
+        # three tries of its own told nothing of them.
+        result = self.fingers("maxtries", "maxtries", "authinfo_unavail")
+        self.assertNotEqual(result["authenticate"], 0)
+        self.assertEqual(self.misses(), 2)
+
+    def test_a_second_or_third_try_that_matches_logs_in(self) -> None:
+        for codes in (
+            ("maxtries", "success"),
+            ("maxtries",) * 2 + ("success",),
+        ):
+            with self.subTest(codes=codes):
+                result = self.fingers(*codes)
+                self.assertEqual(
+                    (result["authenticate"], result["account"]), (0, 0)
+                )
+                self.assertEqual(self.misses(), 0, "cleared by the match")
+                self.assertFalse(self.keyring_given())
+
+    def test_after_five_misses_the_reader_is_not_asked(self) -> None:
+        self.fingers("maxtries", "maxtries", "maxtries")
+        self.fingers("maxtries", "maxtries", "success")
+        self.assertEqual(self.misses(), 5)
+        # The owner's finger would match now: no reader is asked at all.
+        self.stack(DOTFILES / "etc/greetd/finger-asked")
+        (self.folder / "touched").touch()
+        result = self.login("")
+        self.assertNotEqual(result["authenticate"], 0)
+        self.assertEqual(self.reads(), 0)
+        self.assertIn(REFUSED, self.said(result))
+        self.assertEqual(self.misses(), 5)
+
+    def test_the_password_still_logs_in_then_and_clears_them(self) -> None:
+        self.fingers("maxtries", "maxtries", "maxtries")
+        self.fingers("maxtries", "maxtries", "maxtries")
+        self.assertNotEqual(self.fingers("success")["authenticate"], 0)
+        result = self.login(SECRET)
+        self.assertEqual((result["authenticate"], result["account"]), (0, 0))
+        self.assertEqual(self.said(result), ["Password: "])
+        self.assertEqual(self.misses(), 0)
+        self.assertEqual(self.fingers("success")["authenticate"], 0)
+
+    def test_a_wrong_password_leaves_the_fingers_count(self) -> None:
+        self.fingers("maxtries", "authinfo_unavail")
+        self.assertNotEqual(self.login("not the password")["authenticate"], 0)
+        self.assertEqual(self.misses(), 1)
 
     def test_without_pam_fprintd_an_empty_answer_fails(self) -> None:
         self.stack(
@@ -427,6 +613,40 @@ class Conversations(unittest.TestCase):
         self.assertEqual(self.login(SECRET)["authenticate"], 0)
         self.assertNotEqual(self.login("")["authenticate"], 0)
         self.assertEqual(self.reads(), 0)
+
+
+class FingerAsked(unittest.TestCase):
+    """etc/greetd/finger-asked as pam_exec runs it: the answer on stdin with
+    a NUL after it, and no PATH."""
+
+    def asked(self, answer: bytes) -> int:
+        return subprocess.run(
+            ["/bin/sh", str(DOTFILES / "etc/greetd/finger-asked")],
+            input=answer + b"\0",
+            env={},
+            capture_output=True,
+            check=False,
+        ).returncode
+
+    def test_only_an_empty_answer_asks_for_a_finger(self) -> None:
+        self.assertEqual(self.asked(b""), 0)
+        for answer in (SECRET.encode(), b" ", b"0"):
+            with self.subTest(answer=answer):
+                self.assertNotEqual(self.asked(answer), 0)
+
+    def test_a_password_is_none_where_no_tool_is_on_the_path(self) -> None:
+        # A tool not found would read as an empty answer, and send every
+        # password to the reader: PATH names nowhere, as a shell with no
+        # default of its own would have it.
+        done = subprocess.run(
+            ["/bin/sh", str(DOTFILES / "etc/greetd/finger-asked")],
+            input=SECRET.encode() + b"\0",
+            env={"PATH": "/nowhere"},
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stderr, b"")
 
 
 @unittest.skipUnless(

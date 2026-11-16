@@ -123,7 +123,7 @@ class Sources(unittest.TestCase):
             if line.strip() and not line.startswith("#")
         ]
         self.assertEqual(
-            rules, [["auth", "required", "pam_fprintd.so", "max-tries=3"]]
+            rules, [["auth", "required", "pam_fprintd.so", "max-tries=1"]]
         )
 
     def test_the_field_hides_the_password(self) -> None:
