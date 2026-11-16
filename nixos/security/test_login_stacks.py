@@ -7,7 +7,8 @@ NixOS, and these tests hold the adaptation to that: the same lines, only
 modules and helpers by store path; the local-login stack it includes as
 Arch's, without a keyring or a finger and never `sufficient`; no keyring in
 `login`, which the lock screen checks the password with; a finger in sudo
-and polkit only; KDE Connect's ports open to the local networks alone. The
+and polkit only, and in the lock screen's reader (jupiter-fingerprint, the
+dotfiles' pam/fingerprint.conf); KDE Connect's ports open to the local networks alone. The
 pam_exec helpers are built and run, as greetd's PAM would, with no PATH.
 """
 
@@ -19,6 +20,8 @@ import unittest
 from harness import DOTFILES
 from harness.nix import evaluate, nixpkgs, skip_without_nix
 
+# The lock screen's reader, which login.nix declares from this file.
+FINGERPRINT = DOTFILES / ".config/quickshell/pam/fingerprint.conf"
 STORE = re.compile(r"/nix/store/[a-z0-9]{32}-[^/\s]+")
 # login.nix's pam_exec helpers, built from etc/greetd/<name>.
 HELPER = re.compile(r"/nix/store/[a-z0-9]{32}-jupiter-([a-z-]+)\b")
@@ -59,9 +62,13 @@ def module(line: list[str]) -> str:
 class Greetd(unittest.TestCase):
     def test_the_dotfiles_lines_with_modules_by_store_path(self) -> None:
         stacks = services()
-        for name in ("greetd", "greetd-greeter"):
+        for name, file in (
+            ("greetd", DOTFILES / "etc/pam.d/greetd"),
+            ("greetd-greeter", DOTFILES / "etc/pam.d/greetd-greeter"),
+            ("jupiter-fingerprint", FINGERPRINT),
+        ):
             with self.subTest(name):
-                ours = (DOTFILES / "etc/pam.d" / name).read_text()
+                ours = file.read_text()
                 # Back to the dotfiles' words: the same file, line for line.
                 back = HELPER.sub(r"/etc/greetd/\1", stacks[name])
                 back = re.sub(STORE.pattern + "/lib/security/", "", back)
@@ -72,7 +79,12 @@ class Greetd(unittest.TestCase):
 
     def test_every_module_is_found(self) -> None:
         stacks = services()
-        for name in ("greetd", "greetd-greeter", "jupiter-local-login"):
+        for name in (
+            "greetd",
+            "greetd-greeter",
+            "jupiter-local-login",
+            "jupiter-fingerprint",
+        ):
             for kind in ("auth", "account", "session", "password"):
                 for line in rules(stacks[name], kind):
                     if line[1] in ("include", "substack"):
@@ -146,7 +158,7 @@ class Elsewhere(unittest.TestCase):
                     # First: a finger before the password is asked.
                     first = rules(text, "auth")[0]
                     self.assertEqual(first, fingers[0])
-                elif name != "greetd":
+                elif name not in ("greetd", "jupiter-fingerprint"):
                     self.assertEqual(fingers, [])
 
     def test_kde_connect_from_the_local_networks_only(self) -> None:

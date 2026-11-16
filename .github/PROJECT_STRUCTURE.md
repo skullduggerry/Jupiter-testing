@@ -163,7 +163,9 @@ What the security suites hold the code to, and where:
 
 - **Lock screen**: only PAM's success unlocks, from the password or a finger;
   no IPC, shortcut or other file unlocks; the password goes through
-  `/etc/pam.d/login`; while PAM checks it the lock says so and Enter again
+  `/etc/pam.d/login`, the finger through the shell's own `pam/fingerprint.conf`
+  or, where the system declares it (NixOS), `/etc/pam.d/jupiter-fingerprint`
+  and no other; while PAM checks it the lock says so and Enter again
   answers nothing; a second question waits for its own answer; a shell
   restarted while locked locks at once; while locked Hyprland runs no bind
   but the media keys', and the tablet's pad, which goes around Hyprland,

@@ -111,8 +111,29 @@ class Sources(unittest.TestCase):
         # would let anything that writes their files in.
         self.assertIsNone(source.binding(password.text, "configDirectory"))
         self.assertIsNone(source.binding(password.text, "user"))
+        # The reader's: the shell's own pam/fingerprint.conf, or where the
+        # system declares one (NixOS, whose PAM finds pam_fprintd by its
+        # store path alone) /etc/pam.d's, read from there and nowhere else.
         self.assertEqual(
-            source.binding(finger.text, "config"), '"fingerprint.conf"'
+            source.binding(finger.text, "config"),
+            'root.systemFingerprint ? "jupiter-fingerprint" : "fingerprint.conf"',
+        )
+        self.assertEqual(
+            source.binding(finger.text, "configDirectory"),
+            'root.systemFingerprint ? "/etc/pam.d" : Quickshell.shellPath("pam")',
+        )
+        self.assertIn(
+            'readonly property bool systemFingerprint: systemFingerprintFile.text() !== ""',
+            self.service,
+        )
+        [stack] = [
+            view
+            for view in source.objects(self.service, "FileView")
+            if "systemFingerprintFile" in view.text
+        ]
+        self.assertEqual(
+            source.binding(stack.text, "path"),
+            '"/etc/pam.d/jupiter-fingerprint"',
         )
 
     def test_the_fingerprint_stack(self) -> None:

@@ -4,8 +4,10 @@ of them, and it is the one the settings describe (harness/nix.py evaluates;
 skipped without Nix and nixpkgs).
 """
 
+import shutil
 import subprocess
 import unittest
+from pathlib import Path
 from typing import Any
 
 from harness import DOTFILES
@@ -183,17 +185,51 @@ class Desktop(unittest.TestCase):
             "/usr/share/wayland-sessions",
             "/usr/share/X11/xkb",
             "/usr/share/themes",
-            "/usr/share/zsh/plugins/zsh-autosuggestions",
-            "/usr/share/zsh/plugins/zsh-history-substring-search",
-            "/usr/share/zsh/plugins/zsh-syntax-highlighting",
         ):
             self.assertIn(path, linked)
+
+    @unittest.skipUnless(shutil.which("nix-store"), "needs Nix (nix-store)")
+    def test_zshrcs_plugins_are_in_the_profile(self) -> None:
+        # .zshrc looks in each XDG_DATA_DIRS folder (the profile's share/)
+        # for zsh/plugins/<name>/<name>.zsh or <name>/<name>.zsh: each
+        # plugin's file must be in a folder the profile links.
         zshrc = (DOTFILES / ".config/.zshrc").read_text()
-        for line in zshrc.splitlines():
-            if line.startswith("source /usr/share/zsh/plugins/"):
-                with self.subTest(line=line):
-                    plugin = line.split()[1].rsplit("/", 1)[0]
-                    self.assertIn(plugin, linked)
+        names = zshrc.split("for plugin in ", 1)[1].split(";", 1)[0].split()
+        found = evaluate(
+            "{ links = config.environment.pathsToLink;"
+            "  share = builtins.mapAttrs (_: p: p.drvPath) {"
+            + "".join(
+                f' "{name}" = builtins.head (builtins.filter'
+                f' (p: (p.pname or "") == "{name}")'
+                " config.environment.systemPackages);"
+                for name in names
+            )
+            + " }; }"
+        )
+        for name in names:
+            with self.subTest(plugin=name):
+                built = subprocess.run(
+                    ["nix-store", "--realise", found["share"][name]],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.split()[0]
+                # The first in .zshrc's order: some ship both layouts.
+                file = next(
+                    relative
+                    for relative in (
+                        f"share/zsh/plugins/{name}/{name}.zsh",
+                        f"share/{name}/{name}.zsh",
+                    )
+                    if Path(built, relative).exists()
+                )
+                self.assertTrue(
+                    any(
+                        f"/{file}".startswith(f"{link.rstrip('/')}/")
+                        for link in found["links"]
+                    ),
+                    f"{file} is not in a folder the profile links",
+                )
 
 
 if __name__ == "__main__":

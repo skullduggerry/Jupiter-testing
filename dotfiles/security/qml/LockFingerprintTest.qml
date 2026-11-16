@@ -7,6 +7,7 @@ import "../shell/services"
 // stack, and pam_faillock.
 TestCase {
     function test_aFingerUnlocks() {
+        verify(!LockService.systemFingerprint, "no system stack: the shell's own");
         LockService.lock();
         verify(LockService.locked);
         return tryVerify(() => !LockService.locked, 3000, "the finger unlocks").then(() => {
