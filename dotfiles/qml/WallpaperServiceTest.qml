@@ -42,7 +42,8 @@ TestCase {
         WallpaperService.apply(picture);
         return tryVerify(() => calls().length > 0, 2000, "hyprpaper is told").then(() => {
             compare(calls()[calls().length - 1], "hyprpaper wallpaper ," + picture + ",cover");
-            verify(config().includes("    fit_mode = cover\n"), "the saved config keeps cover");
+            // The config is written asynchronously, after hyprpaper may be told.
+            return tryVerify(() => config().includes("    fit_mode = cover\n"), 2000, "the saved config keeps cover");
         });
     }
 
@@ -52,7 +53,8 @@ TestCase {
         compare(WallpaperService.fit, "contain");
         return tryVerify(() => calls().length > before, 2000, "hyprpaper is told again").then(() => {
             compare(calls()[calls().length - 1], "hyprpaper wallpaper ," + picture + ",contain");
-            verify(config().includes("    path = " + picture + "\n    fit_mode = contain\n"), "the saved config keeps the wallpaper, in the new fit");
+            return tryVerify(() => config().includes("    path = " + picture + "\n    fit_mode = contain\n"), 2000, "the saved config keeps the wallpaper, in the new fit");
+        }).then(() => {
             return tryVerify(() => {
                 settings.reload();
                 return settings.text().includes('"fit": "contain"');
@@ -66,7 +68,7 @@ TestCase {
         WallpaperService.apply(picture);
         return tryVerify(() => calls().length > before, 2000, "hyprpaper is told").then(() => {
             compare(calls()[calls().length - 1], "hyprpaper wallpaper ," + picture + ",tile");
-            verify(config().includes("    fit_mode = tile\n"));
+            return tryVerify(() => config().includes("    fit_mode = tile\n"), 2000, "the saved config keeps tile");
         });
     }
 }

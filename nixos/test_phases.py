@@ -10,6 +10,7 @@ a test gives one.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -129,7 +130,12 @@ class Dotfiles(World):
         )
 
     def test_without_wallust_the_first_login_renders(self) -> None:
+        # Nor any other wallust: PATH is the stand-ins and git alone.
         (self.bin / "wallust").unlink()
+        tools = self.tmp / "tools"
+        tools.mkdir()
+        (tools / "git").symlink_to(shutil.which("git") or "git")
+        self.env["PATH"] = f"{self.bin}:{tools}"
         calls = self.jupiter("3")
         self.assertNotIn("apply.sh", calls)
         self.assertIn("wallust is missing", self.output)
