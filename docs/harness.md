@@ -84,6 +84,15 @@ clone of it and only a changed installer installs again. A failing
 scenario's clone stays, with `serial-<n>.log` per boot. Skipped, naming
 what is missing, without qemu, swtpm, KVM, OVMF or the ISO.
 
+`.github/workflows/vm.yml` runs every scenario on GitHub's runner, which has
+KVM: weekly, on demand, and on a push that changes the rig. It asks the rig
+first and fails where it cannot run, as its tests would skip and pass
+unseen; it downloads and verifies the ISO, takes the installer's whole
+history (the `before` scenario installs an old revision), and keeps the
+cache on a Btrfs in a file on the runner's larger disk, so each test's copy
+of an install shares its blocks. A failed run keeps the serial logs as its
+artifact.
+
 **NixOS** (`harness/nix.py`). The installer's modules evaluated as the
 flake does (`nixos/`, a host's `hardware-configuration.nix` and its
 settings), for `hosts/example` or settings a test gives, with nixpkgs from

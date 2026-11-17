@@ -2,7 +2,8 @@
 
 Skipped, naming why, where QEMU, swtpm, KVM, OVMF or the Arch ISO are
 missing (vm/rig.py says how to get each). Not part of ./check.sh: an install
-takes minutes. Run it with scripts/vm.sh, or one test:
+takes minutes. Run it with scripts/vm.sh (as CI's vm.yml does, weekly), or
+one test:
 
     python3 -m unittest vm.test_install -k Before
 

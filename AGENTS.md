@@ -24,7 +24,7 @@ Commit and push straight to `main`, here and in Jupiter-dotfiles and Jupiter-ins
 | `installer/` | Jupiter-installer's tests: the phases against stand-ins on Arch and NixOS (`test_nixos_*`), which system it is on (`test_distro.py`, `fixtures/*-os-release`), the flake (`test_nixos_flake.py`) |
 | `installer/security/` | users and rights, disks and passphrases, the TPM binding, the keyring, sudo and polkit with a finger; on NixOS what the flake declares |
 | `testing/` | this repo's own tooling, each part made to fail: both runners, `lint.sh`, `check.sh`, CI's layout, the VM rig, the docs' references (`test_docs.py`) |
-| `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`) |
+| `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`; CI's `vm.yml` runs it weekly) |
 | `check.sh` | the one command, which every repo's `check.sh` hands over to |
 | `scripts/` | `lint.sh` (one repo's formatters and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, `ci-repos.sh` (CI's layout of the repos), `nixos-check.sh` (CI's NixOS checks), the dotfiles' lint helpers `quickshell-types.py` and `pasted-glyphs.py` |
 | `.githooks/` | pre-push: format and lint the pushed repo, then every repo's suites |
