@@ -218,6 +218,49 @@ class Lint(unittest.TestCase):
         )
 
 
+class SuiteTools(unittest.TestCase):
+    """test.sh asks for the tools of the suites it runs, and no others: the
+    installer's CI has no Quickshell, lua or python-dateutil. PATH holds
+    only what runs before the check, and a python3 without dateutil."""
+
+    def setUp(self) -> None:
+        self.bin = temporary(self) / "bin"
+        for tool in ("bash", "realpath", "dirname", "sort", "xargs", "echo"):
+            if found := shutil.which(tool):
+                self.bin.mkdir(exist_ok=True)
+                (self.bin / tool).symlink_to(found)
+        executable(self.bin / "python3", "#!/bin/sh\nexit 1\n")
+
+    def asked_for(self, *targets: str) -> str:
+        result = subprocess.run(
+            [str(TESTING / "scripts/test.sh"), *targets],
+            env=dict(
+                os.environ,
+                PATH=str(self.bin),
+                JUPITER_DOTFILES=str(DOTFILES),
+                JUPITER_INSTALLER=str(INSTALLER),
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        return result.stderr.rpartition("--needed ")[2].strip()
+
+    def test_each_suite_asks_for_its_own(self) -> None:
+        common = "file python-coverage util-linux"
+        for targets, asked in (
+            (["installer"], common),
+            (["testing"], f"{common} quickshell"),
+            (["dotfiles"], f"{common} lua python-dateutil quickshell"),
+            ([], f"{common} lua python-dateutil quickshell"),
+        ):
+            with self.subTest(targets=targets):
+                self.assertEqual(
+                    self.asked_for(*targets), " ".join(sorted(asked.split()))
+                )
+
+
 class LintDotfiles(unittest.TestCase):
     """The dotfiles' own rules, each broken once in a copy of them."""
 

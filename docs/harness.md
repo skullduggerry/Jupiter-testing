@@ -114,28 +114,34 @@ NixOS.
 
 ## CI
 
-`.github/workflows/check.yml`, the same file in every repo
-(`testing/test_ci.py` compares those on one branch), checks a push to any
-repo on both systems the installer supports. `scripts/ci-repos.sh` lays the
-repos out first: the pushed one, and the others from its branch where their
-repo has that branch, else from the default branch, each told by its files.
-Then:
+Jupiter-dotfiles and Jupiter-installer each have a
+`.github/workflows/check.yml` of their own (`testing/test_ci.py` holds each
+to checking its repo alone), which checks a push to that repo on both
+systems the installer supports. `scripts/ci-repos.sh` lays the repos out
+first: the pushed one, and the others from its branch where their repo has
+that branch, else from the default branch, each told by its files. Then:
 
-- **arch**, in an Arch container: the pushed repo's `check.sh lint`, then
-  `check.sh test all`, every suite of every repo, with Nix (single-user, as
-  `ci`) evaluating the installer's NixOS modules against its flake's own
-  nixpkgs;
-- **nixos**, on the runner's Nix, `scripts/nixos-check.sh`: the
-  installer's flake with its locked inputs and the laid out dotfiles
-  evaluated (`--override-input dotfiles`), the login helpers built, the
+- **arch**, in an Arch container: the repo's `check.sh lint`, then
+  `check.sh test dotfiles` or `check.sh test installer`; for the installer
+  with Nix (single-user, as `ci`) evaluating its NixOS modules against its
+  flake's own nixpkgs;
+- **nixos**, on the runner's Nix, `scripts/nixos-check.sh dotfiles` (the
   dotfiles' Hyprland configs checked by NixOS's Hyprland and their QML
-  suites run in NixOS's Quickshell, which differ from Arch's.
+  suites run in NixOS's Quickshell, which differ from Arch's) or
+  `scripts/nixos-check.sh installer` (the flake with its locked inputs and
+  the laid out dotfiles evaluated, `--override-input dotfiles`, the login
+  helpers and the home-manager generation built).
 
-It runs daily on main as well, as Arch's packages move between pushes.
+The installer's suites read the dotfiles it installs, as the laid out ones:
+a dotfiles change that breaks the installer shows in the installer's next
+run, daily on main, as Arch's packages move between pushes too. This repo's
+own Actions run no checks, only the mirror to Codeberg: a change here is
+checked by `./check.sh check all` and the pre-push hook before it is pushed.
 nixpkgs moves with the installer's `flake.lock`: its
 `update-flake-lock.yml` updates the lock weekly, runs
-`scripts/nixos-check.sh` on the new one, and only then commits it and
-starts this workflow on the commit. The pre-push hook runs the arch job's checks before a push.
+`scripts/nixos-check.sh` (both parts) on the new one, and only then commits
+it and starts the installer's check.yml on the commit. The pre-push hook
+runs every repo's suites before a push.
 
 ## The security model
 

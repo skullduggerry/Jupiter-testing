@@ -54,17 +54,26 @@ for target in "${targets[@]}"; do
     fi
 done
 
-# Each tool, and the package it comes in; python-dateutil is the calendar
-# helper's, and the rest are what the stand-ins run on.
+# Each tool the suites run on, and the package it comes in. Quickshell runs
+# the QML (the dotfiles' and the QML runner's own tests), lua and
+# python-dateutil only the dotfiles' helpers: the installer's suites alone
+# need none of the three, and its CI has none.
 declare -A packages=(
-    ["coverage"]=python-coverage ["qs"]=quickshell ["lua"]=lua ["unshare"]=util-linux
-    ["file"]=file ["setpriv"]=util-linux
+    ["coverage"]=python-coverage ["unshare"]=util-linux ["file"]=file ["setpriv"]=util-linux
 )
+if [[ " ${targets[*]} " == *" "@(dotfiles|testing)" "* ]]; then
+    packages+=(["qs"]=quickshell)
+fi
+if [[ " ${targets[*]} " == *" dotfiles "* ]]; then
+    packages+=(["lua"]=lua)
+fi
 missing=()
 for tool in "${!packages[@]}"; do
     command -v "$tool" >/dev/null || missing+=("${packages[$tool]}")
 done
-python3 -c 'import dateutil' 2>/dev/null || missing+=(python-dateutil)
+if [[ " ${targets[*]} " == *" dotfiles "* ]]; then
+    python3 -c 'import dateutil' 2>/dev/null || missing+=(python-dateutil)
+fi
 if ((${#missing[@]})); then
     echo "Some tools are missing. Install them with:" >&2
     echo "    sudo pacman -S --needed $(printf '%s\n' "${missing[@]}" | sort -u | xargs)" >&2

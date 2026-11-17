@@ -42,7 +42,7 @@ Everything runs against stand-ins in temporary folders: nothing on the machine c
 
 ## CI
 
-Every push and pull request to any Jupiter repo is checked on both systems the installer supports, Arch and NixOS, by the same `.github/workflows/check.yml`: the pushed repo's linters and every repo's suites in an Arch container, and on Nix the flake evaluated with the pushed dotfiles, its login helpers built, and the dotfiles' Hyprland config and QML suites run on NixOS's Hyprland and Quickshell. Daily on main too. `scripts/ci-repos.sh` lays the repos out; [docs/harness.md](docs/harness.md#ci) says how.
+Jupiter-dotfiles and Jupiter-installer each check their own pushes and pull requests with this repo's tools, on both systems the installer supports, by a `.github/workflows/check.yml` of their own: the repo's linters and suites in an Arch container, and on Nix the dotfiles' Hyprland config and QML suites on NixOS's Hyprland and Quickshell, or the installer's flake evaluated and built. Daily on main too. This repo's Actions run no checks, and only mirror it to Codeberg: a change here is checked by `./check.sh check all` and the pre-push hook before it is pushed, and by the other repos' next runs. `scripts/ci-repos.sh` lays the repos out; [docs/harness.md](docs/harness.md#ci) says how.
 
 ## Documentation
 

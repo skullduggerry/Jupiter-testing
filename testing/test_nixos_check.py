@@ -1,6 +1,6 @@
 """scripts/nixos-check.sh, CI's NixOS checks: what it evaluates and builds
-with the laid-out dotfiles, and that one failing check neither hides the
-others nor passes.
+with the laid-out dotfiles, each repo's part alone, and that one failing
+check neither hides the others nor passes.
 
 nix, Hyprland, qs and python3 are stand-ins that record how they were
 called: nix "builds" each package as a folder of stand-ins (the
@@ -70,10 +70,10 @@ class NixosCheck(unittest.TestCase):
             "SPECIALISED": "Nord Oxocarbon-Dark",
         }
 
-    def run_check(self, **env: str) -> tuple[int, list[str], str]:
+    def run_check(self, *part: str, **env: str) -> tuple[int, list[str], str]:
         self.calls.write_text("")
         done = subprocess.run(
-            ["bash", str(SCRIPT)],
+            ["bash", str(SCRIPT), *part],
             cwd=self.root,
             env=self.env | env,
             capture_output=True,
@@ -147,6 +147,48 @@ class NixosCheck(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("FAIL  hosts/example does not evaluate", output)
         self.assertEqual(len(calls), 1, calls)
+
+    def test_the_installer_part_alone(self) -> None:
+        status, calls, output = self.run_check("installer")
+        self.assertEqual(status, 0, output)
+        built = " ".join(calls)
+        self.assertIn("toplevel.drvPath", built)
+        self.assertIn("jupiter.greeterRoot", built)
+        self.assertIn("home.activationPackage", built)
+        # Neither NixOS's Hyprland nor its Quickshell: the dotfiles' part.
+        self.assertNotIn("pkgs.hyprland", built)
+        self.assertEqual(
+            [c for c in calls if not c.startswith("nix ")], [], calls
+        )
+
+    def test_the_dotfiles_part_alone(self) -> None:
+        status, calls, output = self.run_check("dotfiles", BROKEN="1")
+        # The system is the installer's to evaluate: broken, it does not
+        # stop the dotfiles' checks.
+        self.assertEqual(status, 0, output)
+        built = " ".join(c for c in calls if c.startswith("nix "))
+        self.assertNotIn("toplevel.drvPath", built)
+        self.assertNotIn("activationPackage", built)
+        self.assertIn(
+            f"--override-input dotfiles path:{self.root}/Jupiter-dotfiles",
+            built,
+        )
+        self.assertEqual(
+            len([c for c in calls if "--verify-config" in c]), 2, calls
+        )
+        self.assertIn(
+            "python3 -m harness.run dotfiles/test_qml.py "
+            "dotfiles/security/test_lock_screen.py",
+            calls,
+        )
+
+    def test_an_unknown_part_is_refused(self) -> None:
+        for part in (["testing"], ["dotfiles", "installer"]):
+            with self.subTest(part=part):
+                status, calls, output = self.run_check(*part)
+                self.assertEqual(status, 2)
+                self.assertIn("usage: nixos-check.sh", output)
+                self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

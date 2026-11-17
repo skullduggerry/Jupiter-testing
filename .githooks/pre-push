@@ -3,8 +3,9 @@
 # suites of every Jupiter repo cloned here, Arch's installer and NixOS's
 # alike, as a change to one repo can break another's setup. If formatting
 # changed anything the push stops, leaving the changes for a commit of their
-# own. CI (.github/workflows/check.yml) runs the same checks again after the
-# push, and NixOS's Hyprland and Quickshell besides.
+# own. After the push, the dotfiles' and the installer's CI each check that
+# repo alone again, on NixOS too; this repo's CI checks nothing, so this
+# hook is what checks a push of it.
 hooks=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
 repo=$(git rev-parse --show-toplevel)
 before=$(git -C "$repo" diff | sha1sum)

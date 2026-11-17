@@ -154,44 +154,59 @@ class Layout(unittest.TestCase):
         self.assertIn("Jupiter-installer@main", done.stderr)
 
 
-class Workflow(unittest.TestCase):
-    """The workflow is the same file in every repo, and runs the layout."""
+class Workflows(unittest.TestCase):
+    """Each tested repo's check.yml lays the repos out and checks that repo
+    alone, on Arch and on NixOS; this repo's Actions only mirror it."""
 
-    WORKFLOW = Path(".github/workflows/check.yml")
+    WORKFLOWS = Path(".github/workflows")
 
-    def test_the_same_in_every_repo_there_is(self) -> None:
-        # Among the repos on this repo's branch: CI tests a branch against
-        # the other repos' main where they have no such branch, and their
-        # workflow changes only once the branch is merged.
+    def workflow(self, repo: Path) -> str:
+        """Its steps, without the comments that describe them."""
+        path = repo / self.WORKFLOWS / "check.yml"
+        if not path.exists():
+            self.skipTest(f"no {path}")
+        return "".join(
+            line
+            for line in path.read_text().splitlines(keepends=True)
+            if not line.lstrip().startswith("#")
+        )
+
+    def test_each_repo_checks_itself_alone(self) -> None:
         from harness import DOTFILES, INSTALLER
 
-        ours = (TESTING / self.WORKFLOW).read_text()
-        branch = git("-C", TESTING, "rev-parse", "--abbrev-ref", "HEAD")
-        for repo in (DOTFILES, INSTALLER):
-            path = repo / self.WORKFLOW
-            if not path.exists():
-                continue
-            theirs = subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True,
-                text=True,
-                check=False,
-            ).stdout
-            if theirs != branch:
-                continue
+        for repo, kind, other in (
+            (DOTFILES, "dotfiles", "installer"),
+            (INSTALLER, "installer", "dotfiles"),
+        ):
             with self.subTest(repo=repo.name):
-                self.assertEqual(
-                    path.read_text(),
-                    ours,
-                    f"{repo.name}'s check.yml differs from "
-                    "Jupiter-testing's: the same file goes in every repo",
-                )
+                text = self.workflow(repo)
+                self.assertIn("scripts/ci-repos.sh checkout", text)
+                self.assertIn(f"cd Jupiter-{kind}\n", text)
+                self.assertIn("./check.sh lint\n", text)
+                self.assertIn(f"./check.sh test {kind}\n", text)
+                self.assertIn(f"scripts/nixos-check.sh {kind}\n", text)
+                for elsewhere in (
+                    "test all",
+                    f"test {other}",
+                    f"nixos-check.sh {other}",
+                    "nixos-check.sh\n",
+                ):
+                    self.assertNotIn(
+                        elsewhere,
+                        text,
+                        f"{repo.name}'s check.yml checks more than itself",
+                    )
 
-    def test_it_lays_the_repos_out_and_tests_them_all(self) -> None:
-        text = (TESTING / self.WORKFLOW).read_text()
-        self.assertIn("scripts/ci-repos.sh", text)
-        self.assertIn("check.sh test all", text)
-        self.assertIn("JUPITER_NIXPKGS", text)
+    def test_the_installer_tests_its_nixos_side(self) -> None:
+        from harness import INSTALLER
+
+        self.assertIn("JUPITER_NIXPKGS", self.workflow(INSTALLER))
+
+    def test_this_repo_only_mirrors(self) -> None:
+        self.assertEqual(
+            sorted(p.name for p in (TESTING / self.WORKFLOWS).iterdir()),
+            ["mirror-codeberg.yml"],
+        )
 
 
 # check.sh's stand-in: records its arguments; with --fix it changes the
