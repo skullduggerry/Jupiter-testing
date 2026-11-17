@@ -53,7 +53,7 @@ jobs:
         # stubs, the VM's firmware), and what an installed desktop has that the
         # suites use: neovim's Lua for lua-language-server, the GNOME schemas,
         # Kvantum's KvMojave, cmp. [multilib] for the package-list test; nix
-        # for the installer's NixOS side (nixfmt, which Arch has no package of, comes from it).
+        # for the installer's NixOS side (nixfmt, statix and deadnix, which Arch has no package of, come from it).
         run: |
           printf '[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
           pacman -Syu --noconfirm --needed git sudo rust \
@@ -118,9 +118,9 @@ jobs:
           nixpkgs=$(sudo -u ci -H env NIX_CONFIG="$NIX" nix eval --raw --impure --expr \
             "(builtins.getFlake \"path:$GITHUB_WORKSPACE/Jupiter-installer\").inputs.nixpkgs.outPath")
           echo "JUPITER_NIXPKGS=$nixpkgs" >> "$GITHUB_ENV"
-          # nixfmt for the lint, from the same nixpkgs.
-          sudo -u ci -H env NIX_CONFIG="$NIX" nix build --impure --out-link /home/ci/tools/nixfmt \
-            --expr "(import $nixpkgs { }).nixfmt"
+          # The Nix linters (nixfmt, statix, deadnix), from the same nixpkgs.
+          sudo -u ci -H env NIX_CONFIG="$NIX" nix build --impure --out-link /home/ci/tools/nix \
+            --expr "with import $nixpkgs { }; buildEnv { name = \"nix-linters\"; paths = [ nixfmt statix deadnix ]; }"
         env:
           NIX: |
             experimental-features = nix-command flakes
@@ -129,14 +129,14 @@ jobs:
       - name: Lint the pushed repo
         run: |
           cd "$PUSHED"
-          sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nixfmt/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nix/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
             ./check.sh lint
       - name: Test every repo, Arch and NixOS
         # After a failed lint too, while the repos are there to test.
         if: (success() || failure()) && steps.nixpkgs.outcome == 'success'
         run: |
           cd Jupiter-testing
-          sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nixfmt/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nix/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
             JUPITER_NIXPKGS="$JUPITER_NIXPKGS" NIX_CONFIG="$NIX" ./check.sh test all
         env:
           NIX: |

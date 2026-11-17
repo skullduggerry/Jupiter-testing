@@ -131,6 +131,83 @@ class Bootstrap(unittest.TestCase):
         )
         self.assertIn(f"could not update {clone}", shown)
 
+    def iso(self) -> Path:
+        """A PATH with the stand-ins in bin/ taken out, and only the tools
+        bootstrap.sh itself needs: an ISO with neither git nor Python."""
+        tools = self.tmp / "iso"
+        tools.mkdir()
+        for name in ("realpath", "dirname", "basename", "mkdir"):
+            found = shutil.which(name)
+            assert found, name
+            (tools / name).symlink_to(found)
+        (self.tmp / "bin/git").unlink()
+        (self.tmp / "bin/python3").unlink()
+        self.env["PATH"] = f"{self.tmp / 'bin'}:{tools}"
+        return tools
+
+    def test_on_arch_s_iso_pacman_brings_git(self) -> None:
+        self.iso()
+        # pacman installs git into PATH, as it would on the ISO; Python is
+        # the ISO's own.
+        executable(
+            self.tmp / "bin/pacman",
+            '#!/bin/sh\necho "pacman $*" >>"$CALLS"\n'
+            f'{shutil.which("cp")} "{self.tmp}/git" "{self.tmp}/bin/git"\n',
+        )
+        executable(self.tmp / "git", GIT)
+        executable(self.tmp / "bin/python3", PYTHON)
+        home = self.home / "My-installer"
+        status, calls, _ = self.run_in_terminal(
+            ["/usr/bin/bash", "-s"], stdin=BOOTSTRAP
+        )
+        self.assertEqual(
+            (status, calls),
+            (
+                0,
+                [
+                    "pacman -Sy --noconfirm git",
+                    f"git clone {REPO} {home}",
+                    f"python3 -m jupiter in {home}, typed: yes",
+                ],
+            ),
+        )
+
+    # bootstrap.sh's git() and python3() look for the real program with
+    # `command -v`, which finds the function itself: on the NixOS ISO, with
+    # neither installed, they call one that is not there. A fix (type -P)
+    # waits for approval; this then passes, and the marker comes off.
+    @unittest.expectedFailure
+    def test_on_the_nixos_iso_git_and_python_come_from_nixpkgs(self) -> None:
+        self.iso()
+        # nix shell nixpkgs#X --command X ...: the program from a folder of
+        # its own, as nixpkgs would bring it, not on PATH.
+        nixpkgs = self.tmp / "nixpkgs"
+        executable(nixpkgs / "git", GIT)
+        executable(nixpkgs / "python3", PYTHON)
+        executable(
+            self.tmp / "bin/nix",
+            '#!/bin/sh\nwhile [ "$1" != shell ]; do shift; done\n'
+            'echo "nix shell $2" >>"$CALLS"\nshift 3\n'
+            f'program="{nixpkgs}/$1"\nshift\nexec "$program" "$@"\n',
+        )
+        home = self.home / "My-installer"
+        status, calls, _ = self.run_in_terminal(
+            ["/usr/bin/bash", "-s", "--", "1"], stdin=BOOTSTRAP
+        )
+        self.assertEqual(
+            (status, calls),
+            (
+                0,
+                [
+                    "nix shell nixpkgs#git",
+                    f"git clone {REPO} {home}",
+                    "nix shell nixpkgs#python3",
+                    f"python3 -m jupiter 1 in {home}, typed: yes",
+                ],
+            ),
+            "the answers still come from the terminal",
+        )
+
     def test_a_copy_without_git_is_not_cloned_over(self) -> None:
         clone = self.tmp / "unpacked"
         script = self.clone(clone)

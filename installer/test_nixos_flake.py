@@ -12,6 +12,7 @@ from typing import Any
 
 from harness import DOTFILES
 from harness.nix import evaluate, example, skip_without_nix
+from installer.test_nixos_phase1 import Declining, Encrypting
 
 TOPLEVEL = "config.system.build.toplevel.drvPath"
 
@@ -232,6 +233,79 @@ class Desktop(unittest.TestCase):
                     ),
                     f"{file} is not in a folder the profile links",
                 )
+
+
+class WhatPhase1Writes(Encrypting):
+    """The settings Python's phase 1 writes, as the flake reads them: the
+    two halves agree on the format, field by field (an unknown or missing
+    field, or a value of the wrong kind, fails the evaluation)."""
+
+    def test_encrypted_with_a_data_disk_and_nvidia(self) -> None:
+        skip_without_nix()
+        self.install()
+        found = evaluate(
+            "{ drv = config.system.build.toplevel.drvPath;"
+            "  data = builtins.attrNames config.fileSystems;"
+            "  luks = config.boot.initrd.luks.devices.root.device; }",
+            self.settings(),
+        )
+        self.assertIn("/data", found["data"])
+        root = self.settings()["root"]["luks"]
+        self.assertEqual(found["luks"], f"/dev/disk/by-uuid/{root}")
+
+
+class WhatPhase1WritesUnencrypted(Declining):
+    def test_unencrypted(self) -> None:
+        skip_without_nix()
+        self.install()
+        self.assertRegex(
+            evaluate(TOPLEVEL, self.settings()), r"-nixos-system-box-"
+        )
+
+
+class KnownIssues(unittest.TestCase):
+    """What the review found and a fix waits for (docs/nixos.md, "Known
+    issues"): each an expected failure, which once fixed passes and fails
+    the run until its marker comes off."""
+
+    @unittest.expectedFailure
+    def test_qt_finds_the_systems_plugins(self) -> None:
+        # Quickshell's wrapper reaches only its own image plugins (no
+        # .webp), and Qt apps no qt6ct or Kvantum, unless NixOS points Qt at
+        # the profile's plugins (its qt module).
+        plugins = evaluate(
+            "config.environment.profileRelativeSessionVariables"
+            ".QT_PLUGIN_PATH or []"
+        )
+        self.assertIn("/lib/qt-6/plugins", plugins)
+
+    @unittest.expectedFailure
+    def test_docker_is_not_left_on_iptables_beside_nftables(self) -> None:
+        # nixpkgs' networking.nftables.enable: Docker does not work with it
+        # "without intervention".
+        found = evaluate(
+            "{ docker = config.virtualisation.docker.enable;"
+            "  nftables = config.networking.nftables.enable;"
+            "  backend = config.virtualisation.docker.daemon.settings"
+            ".firewall-backend or null; }"
+        )
+        self.assertFalse(
+            found["docker"]
+            and found["nftables"]
+            and found["backend"] != "nftables",
+            found,
+        )
+
+    @unittest.expectedFailure
+    def test_the_boot_partition_and_the_store_are_kept_in_bounds(self) -> None:
+        # A 1 GiB ESP takes a signed image a generation; without a limit and
+        # garbage collection it fills, and a rebuild fails.
+        found = evaluate(
+            "{ limit = config.boot.loader.systemd-boot.configurationLimit;"
+            "  gc = config.nix.gc.automatic; }"
+        )
+        self.assertIsNotNone(found["limit"])
+        self.assertTrue(found["gc"])
 
 
 if __name__ == "__main__":

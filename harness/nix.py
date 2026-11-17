@@ -35,6 +35,9 @@ LANZABOOTE = """\
   };
 }
 """
+# Found once, on the PATH the run started with: a test may stand in for every
+# command (installer/test_nixos_phase1.py) and still evaluate what it wrote.
+NIX_INSTANTIATE = shutil.which("nix-instantiate")
 # The repos as the flake sees them (no .git); settings from a file, as JSON.
 EVALUATE = """\
 { nixpkgs, installer, dotfiles, host, settings, stub }:
@@ -66,10 +69,10 @@ def nixpkgs() -> Path | None:
     given = os.environ.get("JUPITER_NIXPKGS")
     if given:
         return Path(given)
-    if not shutil.which("nix-instantiate"):
+    if not NIX_INSTANTIATE:
         return None
     found = subprocess.run(
-        ["nix-instantiate", "--find-file", "nixpkgs"],
+        [NIX_INSTANTIATE, "--find-file", "nixpkgs"],
         capture_output=True,
         text=True,
         check=False,
@@ -82,7 +85,7 @@ def nixpkgs() -> Path | None:
 
 def skip_without_nix() -> None:
     """Skip the test calling it where Nix or nixpkgs is missing."""
-    if not shutil.which("nix-instantiate"):
+    if not NIX_INSTANTIATE:
         raise unittest.SkipTest("needs Nix (nix-instantiate)")
     if nixpkgs() is None:
         raise unittest.SkipTest(
@@ -104,6 +107,7 @@ def evaluate(expression: str, settings: dict[str, Any] | None = None) -> Any:
     with these settings), evaluated strictly to JSON. Raises
     subprocess.CalledProcessError, with Nix's message, if it fails."""
     skip_without_nix()
+    assert NIX_INSTANTIATE
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp)
         (folder / "evaluate.nix").write_text(EVALUATE)
@@ -127,7 +131,7 @@ def evaluate(expression: str, settings: dict[str, Any] | None = None) -> Any:
         )
         result = subprocess.run(
             [
-                "nix-instantiate", "--read-write-mode", "--eval", "--strict",
+                NIX_INSTANTIATE, "--read-write-mode", "--eval", "--strict",
                 "--json", "-E", text,
             ],
             capture_output=True,

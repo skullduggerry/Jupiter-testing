@@ -248,6 +248,8 @@ class Skipping(unittest.TestCase):
             mock.patch("shutil.which", return_value="/usr/bin/x"),
             mock.patch("os.access", return_value=True),
             mock.patch.object(rig, "ISO", Path("/nonexistent.iso")),
+            # The firmware there, whether or not this machine has it.
+            mock.patch.object(rig, "OVMF_CODE", Path(__file__)),
         ):
             self.assertRegex(
                 rig.missing() or "", r"no Arch ISO at /nonexistent"

@@ -379,6 +379,20 @@ if ((${#workflows[@]})); then
     fi
 fi
 
+# Nix beyond its formatting: statix's lints (configured by the repo's
+# statix.toml) and deadnix's unused bindings. Optional like nixfmt; CI has both.
+mapfile -t nixfiles < <(files '*.nix')
+if ((${#nixfiles[@]})); then
+    section "nix (statix, deadnix)"
+    if ! command -v statix >/dev/null || ! command -v deadnix >/dev/null; then
+        echo "  skip  statix or deadnix is not installed (nix profile install nixpkgs#statix nixpkgs#deadnix)"
+    else
+        (cd "$repo" && statix check -o errfmt .) >"$tmp/out" 2>&1 || failed "statix"
+        (cd "$repo" && deadnix --fail "${nixfiles[@]}") >"$tmp/out" 2>&1 || failed "deadnix"
+        passed "${#nixfiles[@]} files"
+    fi
+fi
+
 if [[ $kind == dotfiles ]]; then
     section "hyprland configs"
     # Hyprland's own parser, which also rejects unknown rule fields and wrong

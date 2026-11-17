@@ -37,6 +37,35 @@ printf '%s\\n' $LSBLK
 """
 PUSH_URL = "git@example.org:dotfiles.git"
 INSTALL = "sudo pacman -S --needed --noconfirm"
+# Arch's pacman.conf as it ships, the part phase 3 reads, with [multilib]
+# enabled as CI's is: the machine's own is not read, as one that is not
+# Arch's has none.
+PACMAN_CONF = """[options]
+HoldPkg     = pacman glibc
+Architecture = auto
+#Color
+#NoProgressBar
+CheckSpace
+#VerbosePkgLists
+ParallelDownloads = 5
+
+[core]
+Include = /etc/pacman.d/mirrorlist
+
+[extra]
+Include = /etc/pacman.d/mirrorlist
+
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+"""
+# python3 -m jupiter, reading the pacman.conf at $PACMAN_CONF.
+JUPITER = """import os, runpy, sys
+from pathlib import Path
+from jupiter import phase3
+phase3.PACMAN_CONF = Path(os.environ["PACMAN_CONF"])
+sys.argv[0] = "jupiter"
+runpy.run_module("jupiter", run_name="__main__", alter_sys=True)
+"""
 USER_UNITS = "hyprpolkitagent gcr-ssh-agent.socket"
 # The folders a new home gets, written by sh -c from stdin.
 USER_DIRS = "sudo sh -c cat > /etc/xdg/user-dirs.defaults"
@@ -71,6 +100,8 @@ class Phases(unittest.TestCase):
         self.bin = tmp / "bin"
         self.calls = tmp / "calls"
         self.output = ""
+        self.pacman_conf = tmp / "pacman.conf"
+        self.pacman_conf.write_text(PACMAN_CONF)
         for name in ("sudo", "paru", "systemctl", "ufw", "wallust"):
             executable(self.bin / name, RECORD)
         # pacman -Slq lists every package the lists name: all in enabled
@@ -114,12 +145,13 @@ class Phases(unittest.TestCase):
             "CALLS": str(self.calls),
             "DOTFILES_REPO": str(origin),
             "DOTFILES_PUSH_URL": PUSH_URL,
+            "PACMAN_CONF": str(self.pacman_conf),
         }
 
     def jupiter(self, phase: str, answers: str = "") -> list[str]:
         self.calls.write_text("")
         self.output = subprocess.run(
-            [sys.executable, "-m", "jupiter", phase],
+            [sys.executable, "-c", JUPITER, phase],
             cwd=INSTALLER_DIR,
             env=self.env,
             input=answers,
@@ -128,18 +160,16 @@ class Phases(unittest.TestCase):
             text=True,
         ).stdout
         calls = [line.rstrip() for line in self.calls.read_text().splitlines()]
-        # Phase 3 turns on pacman's look in this machine's own pacman.conf,
-        # where it is off (installer's test_multilib for the step itself).
+        # Phase 3 turns on pacman's look, which Arch's pacman.conf has off
+        # (installer's test_multilib for the step itself).
         if phase == "3":
-            conf = phase3.PACMAN_CONF
             look = [
                 c
                 for c in calls
                 if c.startswith("sudo install -b -m 0644 ")
-                and c.endswith(f" {conf}")
+                and c.endswith(f" {self.pacman_conf}")
             ]
-            text = conf.read_text()
-            self.assertEqual(len(look), phase3._with_look(text) != text)
+            self.assertEqual(len(look), 1, calls)
             calls = [c for c in calls if c not in look]
         return calls
 

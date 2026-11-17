@@ -135,6 +135,31 @@ class Lint(unittest.TestCase):
         self.assertIn("FAIL  actionlint", output)
         self.assertIn("SC2086", output)
 
+    def test_nix_is_linted_by_statix_and_deadnix(self) -> None:
+        needs("statix")
+        needs("deadnix")
+        needs("nixfmt")
+        (self.repo / "module.nix").write_text("{ x = 1; }\n")
+        git(self.repo, "add", "-A")
+        code, output = lint("installer", self.repo)
+        self.assertNotIn("FAIL  statix", output)
+        self.assertNotIn("FAIL  deadnix", output)
+        self.assertIn("nix (statix, deadnix)", output)
+        (self.repo / "module.nix").write_text(
+            "let\n  unused = 1;\nin\n{\n  y = x: f x;\n}\n"
+        )
+        code, output = lint("installer", self.repo)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL  statix", output)
+        self.assertIn("FAIL  deadnix", output)
+        # The repo's statix.toml turns a lint off.
+        (self.repo / "statix.toml").write_text(
+            'disabled = ["eta_reduction"]\n'
+        )
+        (self.repo / "module.nix").write_text("{\n  y = x: f x;\n}\n")
+        code, output = lint("installer", self.repo)
+        self.assertNotIn("FAIL  statix", output)
+
     def test_fix_formats_and_fixes(self) -> None:
         (self.repo / "ugly.py").write_text("import os\nVALUE   =  1\n")
         (self.repo / "notes.txt").write_text("trailing \nno newline")
