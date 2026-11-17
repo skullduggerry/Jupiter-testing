@@ -219,9 +219,11 @@ class Workflows(unittest.TestCase):
     def test_this_repo_has_what_the_skipped_tests_need(self) -> None:
         # What the other repos' CI skips the tests of, by what they look for.
         text = self.workflow(TESTING)
-        for package in ("gnome-keyring", "dbus", "glib2"):
+        for package in ("gnome-keyring", "dbus", "glib2", "greetd"):
             with self.subTest(package=package):
                 self.assertIn(f" {package}", text)
+        # The PAM sandbox's user namespace, which GitHub's Ubuntu restricts.
+        self.assertIn("apparmor_restrict_unprivileged_userns", text)
 
 
 # check.sh's stand-in: records its arguments; with --fix it changes the

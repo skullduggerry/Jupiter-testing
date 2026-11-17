@@ -11,9 +11,11 @@
 #          and linters, then every suite (./check.sh check all), the
 #          installer's on Arch and on NixOS, its NixOS modules evaluated by
 #          Nix against the flake's own nixpkgs, and the tests that need the
-#          desktop's daemons (gnome-keyring, dbus) or a PAM sandbox, which
+#          desktop's daemons (gnome-keyring, dbus, greetd's folder) or user
+#          namespaces with capabilities (the PAM sandbox, newuidmap), which
 #          the other repos' CI skips. Privileged: the suites' stand-ins use
-#          unshare. Each skip is listed with its reason.
+#          unshare, and the runner's restriction on namespaces is lifted.
+#          Each skip is listed with its reason.
 #   nixos  on the runner's Nix, scripts/nixos-check.sh: the installer's
 #          flake evaluated and built, and the dotfiles' Hyprland config and
 #          QML suites on NixOS's Hyprland and Quickshell.
@@ -47,13 +49,22 @@ jobs:
       image: archlinux:latest
       options: --privileged
     steps:
+      - name: Let user namespaces keep their capabilities
+        # As an Arch desktop's do. The runner's Ubuntu withholds them
+        # (AppArmor), so the PAM sandbox cannot map its user, nor newuidmap
+        # a second one, and the lock and login screens' tests that need
+        # them are skipped. A privileged container sets it for the runner.
+        run: |
+          restrict=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ -e "$restrict" ]; then echo 0 > "$restrict"; fi
       - name: Install tools
         # What lint.sh and test.sh ask for, for every repo; mypy's stubs;
         # the VM rig's tools, which its own tests check for (vm/ itself
         # needs KVM and the ISO: scripts/vm.sh); and what an installed
         # desktop has that the suites use: neovim's Lua for
         # lua-language-server, the GNOME schemas, Kvantum's KvMojave, cmp,
-        # xdg-user-dirs, the keyring's daemon and the session bus.
+        # xdg-user-dirs, the keyring's daemon and the session bus, and greetd,
+        # over whose /etc/greetd the greeter's install is tried.
         # [multilib] for the package-list test; nix for the installer's
         # NixOS side (nixfmt, statix and deadnix, which Arch has no package
         # of, come from it); rust builds wallust.
@@ -66,7 +77,7 @@ jobs:
             python-coverage python-dateutil python-gobject python-pyxdg \
             util-linux file xdg-user-dirs qemu-system-x86 swtpm edk2-ovmf libarchive \
             neovim gsettings-desktop-schemas kvantum diffutils \
-            gnome-keyring dbus glib2
+            gnome-keyring dbus glib2 greetd
           # To compare with the desktop when a check passes there only.
           pacman -Q quickshell qt6-declarative hyprland lua-language-server python nix
       - name: Add an unprivileged user
