@@ -42,9 +42,10 @@ Everything runs against stand-ins in temporary folders: nothing on the machine c
 
 ## CI
 
-Every push and pull request to any Jupiter repo is checked on both systems the installer supports, Arch and NixOS, by the same `.github/workflows/check.yml`: the pushed repo's linters and every repo's suites in an Arch container, and on Nix the flake evaluated with the pushed dotfiles, its login helpers built, and the dotfiles' Hyprland config and QML suites run on NixOS's Hyprland and Quickshell. Daily on main too. `scripts/ci-repos.sh` lays the repos out; `.github/PROJECT_STRUCTURE.md` says how.
+Every push and pull request to any Jupiter repo is checked on both systems the installer supports, Arch and NixOS, by the same `.github/workflows/check.yml`: the pushed repo's linters and every repo's suites in an Arch container, and on Nix the flake evaluated with the pushed dotfiles, its login helpers built, and the dotfiles' Hyprland config and QML suites run on NixOS's Hyprland and Quickshell. Daily on main too. `scripts/ci-repos.sh` lays the repos out; [docs/harness.md](docs/harness.md#ci) says how.
 
 ## Documentation
 
 - [Development](https://github.com/skullduggerry/Jupiter-dotfiles/wiki/Development) in the wiki shared by the three repos: the checks, the suites, writing a test.
-- `.github/`: the harness, the security model and the conventions (`PROJECT_STRUCTURE.md`, and `llm.md` for coding agents).
+- [AGENTS.md](AGENTS.md): the map, the conventions and the pitfalls, for coding agents (Claude Code reads it through `CLAUDE.md`).
+- [docs/harness.md](docs/harness.md): the stand-ins, CI, the security model and how a security test proves itself.

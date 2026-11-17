@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from harness import DOTFILES
+from harness import DOTFILES, INSTALLER
 from harness.nix import evaluate, example, skip_without_nix
 from installer.test_nixos_phase1 import Declining, Encrypting
 
@@ -295,6 +295,14 @@ class KnownIssues(unittest.TestCase):
             and found["backend"] != "nftables",
             found,
         )
+
+    @unittest.expectedFailure
+    def test_the_flakes_inputs_are_locked_in_the_repo(self) -> None:
+        # Without a committed flake.lock, the first build writes one into the
+        # machine's copy and stages it: nixpkgs stays at that revision on
+        # every rebuild after, and once upstream commits a lock of its own,
+        # bootstrap.sh's git pull --ff-only aborts on it.
+        self.assertTrue((INSTALLER / "flake.lock").is_file())
 
     @unittest.expectedFailure
     def test_the_boot_partition_and_the_store_are_kept_in_bounds(self) -> None:

@@ -2,8 +2,7 @@ import QtQuick
 import Quickshell
 import "../shell/services"
 
-// The three-finger-swipe overlay's zones (PROJECT_STRUCTURE.md, "Arrow
-// keys"): a swipe over a third of the screen opens that zone, the same one
+// The three-finger-swipe overlay's zones: a swipe over a third of the screen opens that zone, the same one
 // again closes it, and the arrow keys stop at the screen's edges.
 TestCase {
     function test_aSwipeTogglesItsZone() {

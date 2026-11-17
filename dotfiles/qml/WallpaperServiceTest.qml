@@ -3,7 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "../shell/services"
 
-// The wallpaper's fit (PROJECT_STRUCTURE.md, "Wallpaper"): handed to
+// The wallpaper's fit: handed to
 // hyprpaper with every wallpaper, through the stand-in hyprctl
 // (fixtures/WallpaperServiceTest/bin), and kept for its start in the saved
 // config. With no Hyprland here there are no monitors, so only the fallback

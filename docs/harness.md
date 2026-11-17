@@ -1,56 +1,8 @@
-# Project structure
+# The harness, CI and the security model
 
-The map of the repo and the rules the code alone does not show. How to
-write tests: `.github/llm.md`.
-
-## Repo
-
-| Path | What |
-| --- | --- |
-| `harness/` | what the suites share: where the repos are, helpers loaded by path, stand-in commands (`__init__.py`), the parallel runner (`run.py`), the QML runner (`qml.py`, with `qml/TestCase.qml` and `qml/shell.qml`), the tests every repo's `check.sh` shares (`forwarding.py`), the PAM sandbox (`pam.py`) and a PAM conversation to run in it (`converse.py`), a stand-in greetd (`greetd.py`), a stand-in Nextcloud (`nextcloud.py`), and reading sources (`source.py`) |
-| `dotfiles/` | Jupiter-dotfiles' tests: `test_<helper>.py` per helper script, `test_qml.py` running `qml/*Test.qml` |
-| `dotfiles/security/` | the lock screen, the login screen, the Nextcloud account, text from outside; QML tests in `qml/`, their fixtures in `qml/fixtures/` |
-| `installer/` | Jupiter-installer's tests: the phases against stand-ins, on Arch and on NixOS (`test_nixos_*`, the disks shared through `harness/disks.py`), which system it is on (`test_distro.py`), and the NixOS modules evaluated by Nix (`harness/nix.py`) |
-| `installer/security/` | who phase 1 makes a user, with which password and rights; root checks, firewall, sources; the disk passphrase, data disks and disks not chosen; the TPM binding; the login keyring; the sudo and polkit stacks with a finger; on NixOS (`test_nixos_*`) the passphrase and passwords kept out of the configuration, and the PAM stacks, finger and firewall the flake declares |
-| `testing/` | this repo's own tooling, each part made to fail: the QML runner, the parallel runner, `lint.sh`, `check.sh`, the VM rig |
-| `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`): the rig (`rig.py`), installing with phases 1 and 2 (`install.py`) and the scenarios (`test_install.py`) |
-| `check.sh` | the one command, which every repo's `check.sh` hands over to: each repo's lint, then the suites |
-| `scripts/` | `lint.sh` (one repo's formatting and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, `ci-repos.sh` (CI's layout of the repos), and the dotfiles' lint helpers: `quickshell-types.py` (Quickshell's type information, corrected for qmllint) and `pasted-glyphs.py` |
-| `.githooks/` | pre-push (format and lint the repo pushed, then every repo's suites; stops if formatting changed anything), which `install-hooks.sh` points every clone at |
-| `pyproject.toml`, `.editorconfig` | ruff, mypy (strict) and coverage for this repo; the tested repos keep their own, which `lint.sh` reads there |
-
-Each test module also runs alone: `python3 -m unittest dotfiles.test_shelf`.
-
-The installer runs as Arch or NixOS by what `jupiter/distro.py` reads; its
-tests set `JUPITER_OS_RELEASE` to a stand-in os-release
-(`installer/fixtures/`), Arch's unless a test says NixOS, so both systems'
-phases run the same on whatever machine runs the suites.
-`harness/nix.py` evaluates the NixOS modules as the flake does, for
-`hosts/example` or settings a test gives, with nixpkgs from
-`JUPITER_NIXPKGS` or Nix's `<nixpkgs>` and lanzaboote's options stood in for;
-nothing is built but the pam_exec helpers, which
-`installer/security/test_nixos_login_stacks.py` runs.
-
-## CI
-
-`.github/workflows/check.yml`, the same file in every repo
-(`testing/test_ci.py` compares those on one branch), checks a push to any
-repo on both systems the installer supports. `scripts/ci-repos.sh` lays the
-repos out first: the pushed one, and the others from its branch where their
-repo has that branch, else from the default branch, each told by its files.
-Then:
-
-- **arch**, in an Arch container: the pushed repo's `check.sh lint`, then
-  `check.sh test all`, every suite of every repo, with Nix (single-user, as
-  `ci`) evaluating the installer's NixOS modules against its flake's own
-  nixpkgs;
-- **nixos**, on the runner's Nix: the installer's flake with real inputs and the laid
-  out dotfiles evaluated (`--override-input dotfiles`), the login helpers
-  built, the dotfiles' Hyprland configs checked by NixOS's Hyprland and
-  their QML suites run in NixOS's Quickshell, which differ from Arch's.
-
-It runs daily on main as well: Arch's packages and nixpkgs move between
-pushes. The pre-push hook runs the arch job's checks before a push.
+The reference behind [AGENTS.md](../AGENTS.md): how the stand-ins work, how CI
+lays the repos out, what the security suites hold the code to, and how a
+security test proves itself.
 
 ## The harness
 
@@ -111,10 +63,10 @@ runs root's copy of `install-greeter.sh` (which `install-system.sh` puts in
 `/usr/local/lib/jupiter/greeter`) through pkexec, with `--from` the owner's
 clone. The test makes that copy, then runs it as root of a user namespace
 with subordinate ids (`unshare --map-auto`, newuidmap), a fake
-`/etc/passwd` naming the owner, her home and clone hers and a folder root's,
-and stand-ins bound over `/etc/greetd` and `/etc/pam.d`: what she cannot
+`/etc/passwd` naming the owner, their home and clone theirs and a folder root's,
+and stand-ins bound over `/etc/greetd` and `/etc/pam.d`: what they cannot
 read must not reach the installed tree, and what runs as root must be
-root's copy, whatever her clone says.
+root's copy, whatever their clone says.
 
 **The VM** (`vm/`). QEMU with KVM, OVMF with Secure Boot on a fresh copy of
 its variables (Setup Mode: no keys), swtpm for a TPM 2.0, and the Arch ISO's
@@ -131,6 +83,55 @@ being the installer's files and the answers, so a scenario starts from a
 clone of it and only a changed installer installs again. A failing
 scenario's clone stays, with `serial-<n>.log` per boot. Skipped, naming
 what is missing, without qemu, swtpm, KVM, OVMF or the ISO.
+
+**NixOS** (`harness/nix.py`). The installer's modules evaluated as the
+flake does (`nixos/`, a host's `hardware-configuration.nix` and its
+settings), for `hosts/example` or settings a test gives, with nixpkgs from
+`JUPITER_NIXPKGS` or Nix's `<nixpkgs>` and lanzaboote's options stood in
+for. Nothing is built but the pam_exec helpers, which
+`installer/security/test_nixos_login_stacks.py` runs. The installer tells
+the systems apart by `jupiter/distro.py`; its tests set
+`JUPITER_OS_RELEASE` to `installer/fixtures/arch-os-release` unless they say
+NixOS.
+
+### The VM's pitfalls
+
+- The VM: the console reader searches only new text (`SEARCH_BACK`); a
+  pattern like `(.*?)marker` over a long output re-searched it all on every
+  read and starved the mirror's thread. pacman's progress bars on a
+  115200-baud console stall its downloads: the phases run through `tee`.
+  The ISO's reflector rewrites the mirror list after boot (masked). Without
+  the console's type and size on the kernel command line, systemd waits on
+  terminal queries a second or two per boot. cryptsetup flushes what is typed
+  before it turns echo off (`answer_secret` waits). Once the keys are
+  enrolled the unsigned ISO boots only with Secure Boot off. A Unix socket's
+  path must stay under 108 bytes (`sockets()`).
+- The VM's boot times: the initramfs's 1.2 s are 0.15 s of TPM measurement
+  before the unlock, 0.43 s of unseal and activation, and a 0.34 s pause of
+  systemd's own mount-table watcher (a built-in rate limit). Initramfs size,
+  compression, preloaded modules and masking measurement units gained
+  nothing measurable.
+
+## CI
+
+`.github/workflows/check.yml`, the same file in every repo
+(`testing/test_ci.py` compares those on one branch), checks a push to any
+repo on both systems the installer supports. `scripts/ci-repos.sh` lays the
+repos out first: the pushed one, and the others from its branch where their
+repo has that branch, else from the default branch, each told by its files.
+Then:
+
+- **arch**, in an Arch container: the pushed repo's `check.sh lint`, then
+  `check.sh test all`, every suite of every repo, with Nix (single-user, as
+  `ci`) evaluating the installer's NixOS modules against its flake's own
+  nixpkgs;
+- **nixos**, on the runner's Nix: the installer's flake with real inputs and the laid
+  out dotfiles evaluated (`--override-input dotfiles`), the login helpers
+  built, the dotfiles' Hyprland configs checked by NixOS's Hyprland and
+  their QML suites run in NixOS's Quickshell, which differ from Arch's.
+
+It runs daily on main as well: Arch's packages and nixpkgs move between
+pushes. The pre-push hook runs the arch job's checks before a push.
 
 ## The security model
 
@@ -228,55 +229,3 @@ greeter-env.py, etc/pam.d/greetd, phase 1 and phase 4's tpm.py, keyring.py
 and finger lines was broken once, and a test failed. The installer's the
 same way, through `JUPITER_INSTALLER`. The few that
 survive are noted where they are tested (a guard behind another guard).
-
-## Pitfalls
-
-Each of these has already cost a test run.
-
-- The VM: the console reader searches only new text (`SEARCH_BACK`); a
-  pattern like `(.*?)marker` over a long output re-searched it all on every
-  read and starved the mirror's thread. pacman's progress bars on a
-  115200-baud console stall its downloads: the phases run through `tee`.
-  The ISO's reflector rewrites the mirror list after boot (masked). Without
-  the console's type and size on the kernel command line, systemd waits on
-  terminal queries a second or two per boot. cryptsetup flushes what is typed
-  before it turns echo off (`answer_secret` waits). Once the keys are
-  enrolled the unsigned ISO boots only with Secure Boot off. A Unix socket's
-  path must stay under 108 bytes (`sockets()`).
-- The VM's boot times: the initramfs's 1.2 s are 0.15 s of TPM measurement
-  before the unlock, 0.43 s of unseal and activation, and a 0.34 s pause of
-  systemd's own mount-table watcher (a built-in rate limit). Initramfs size,
-  compression, preloaded modules and masking measurement units gained
-  nothing measurable.
-
-- A wait that passes on an idle machine can fail beside fifteen other tests:
-  wait on the event itself (`tryVerify()` on what the stand-in records), and
-  slow the stand-in down to prove it (`fixtures/LockCheckingTest/`).
-- A helper killed with SIGKILL saves no coverage: stop it with `terminate()`.
-- A server's `shutdown()` waits for its loop to look again (`serve_forever`
-  polls every half second by default; `harness/nextcloud.py` passes 0.01).
-
-- `FileView` in a test reads with `blockAllReads: true` and `reload()`, or
-  `text()` answers from before the write (the dotfiles' Quickshell pitfall).
-- A flag that is true for a moment (`LockService.fingerprint` between two
-  attempts) cannot be polled: count what the stand-in records instead.
-- A test that counts what was sent counts within its own attempt
-  (`thisLogin()`), not over the whole log of a file that ran others before.
-- Quickshell's greetd client logs the session greetd ends after a failure
-  as an unexpected answer, and its error on a refused login as a warning:
-  tests that cause either `ignoreWarning()` it.
-- A subclass of a TestCase inherits its tests: share a fixture through a
-  base class that has none (`installer/test_phase1.Installing`).
-- Files chowned to a subordinate uid cannot be removed by the test: the
-  namespace that chowned them hands them back before it ends.
-- Under zsh, an unquoted `$VAR` holding a command is one word (`${=VAR}`).
-- qmllint counts a member read off what `createObject()` returns (a
-  `QObject`) as a warning and prints nothing for it, so lint fails with an
-  empty report: cast it (`as GlassHighlight`); `qmllint --json -` shows what
-  it counted.
-- `bootstrap.sh` ends on `</dev/tty`, which a test's process does not have:
-  `installer/test_bootstrap.py` gives each run a terminal of its own
-  (`pty.fork()`).
-- `Hyprland --verify-config` wants an `XDG_RUNTIME_DIR`, and reads the state
-  the config loads (`blur.lua`): `dotfiles/test_blur_options.py` gives it
-  both in a temporary folder.

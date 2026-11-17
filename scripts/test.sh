@@ -13,7 +13,7 @@
 # file reads COVERAGE_PROCESS_START), and every bash script notes that it ran
 # (BASH_ENV): a helper no test runs fails, and so does a repo whose lines the
 # suites run less of than its floor. check.sh lints first and then
-# runs this; see "Running" in .github/PROJECT_STRUCTURE.md.
+# runs this.
 set -uo pipefail
 
 testing=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 2

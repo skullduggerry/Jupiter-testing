@@ -11,8 +11,8 @@
 # stylua, and nixfmt for the installer's NixOS side. Linters: qmllint (against Quickshell's types as
 # scripts/quickshell-types.py corrects them), ruff, mypy, shellcheck and, for
 # the dotfiles, lua-language-server and Hyprland's own config check, with the
-# project's rules besides (qmldirs, popup names, glyphs). See "Running" in
-# .github/PROJECT_STRUCTURE.md.
+# project's rules besides (qmldirs, popup names, glyphs), and statix and
+# deadnix for Nix.
 set -uo pipefail
 
 testing=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 2

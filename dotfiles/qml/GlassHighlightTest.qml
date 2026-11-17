@@ -3,8 +3,7 @@ import QtQuick.Window
 import "../shell/panels"
 import "../shell/style"
 
-// The finish of acrylic's glass (panels/GlassHighlight, "Wallpaper" in
-// PROJECT_STRUCTURE.md): where Hyprland's lens cannot frame a panel, the rim
+// The finish of acrylic's glass (panels/GlassHighlight): where Hyprland's lens cannot frame a panel, the rim
 // is drawn, and it runs under the panel's content, so it must read as one
 // slope into the clear middle. A band that shows as a step, or a line where
 // the rim ends, crosses the text over it.

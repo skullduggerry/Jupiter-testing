@@ -8,8 +8,7 @@
 # ~/.cache/jupiter-testing/archlinux-x86_64.iso (or JUPITER_ISO); the tests
 # are skipped, naming what is missing, without them. Each install is kept in
 # ~/.cache/jupiter-testing/vm until the installer changes. Not part of
-# check.sh: an install takes minutes. See "The VM" in
-# .github/PROJECT_STRUCTURE.md.
+# check.sh: an install takes minutes. See "The VM" in docs/harness.md.
 set -euo pipefail
 
 testing=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

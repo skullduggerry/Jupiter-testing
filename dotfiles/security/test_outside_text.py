@@ -5,7 +5,7 @@ text as such, and Qt fetches an <img> from wherever it points. Whoever names
 a Wi-Fi network or a Bluetooth device nearby, sends a notification, a
 calendar invitation or a file, or answers through PAM, chooses that text.
 So on every surface that shows it (the dotfiles' convention in
-PROJECT_STRUCTURE.md), each Text sets its format: PlainText, or the
+their AGENTS.md), each Text sets its format: PlainText, or the
 notification body's StyledText without images (qml/NotificationBodyTest).
 The only exceptions are the fixed messages listed here, which hold nothing
 from outside.

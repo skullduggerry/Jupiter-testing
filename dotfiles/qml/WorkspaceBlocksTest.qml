@@ -1,8 +1,7 @@
 import QtQuick
 import "../shell/services"
 
-// Each monitor's block of workspace ids (PROJECT_STRUCTURE.md,
-// "Workspaces"), as modules/workspaces.lua records them beside Hyprland's
+// Each monitor's block of workspace ids, as modules/workspaces.lua records them beside Hyprland's
 // socket: fixtures/WorkspaceBlocksTest/runtime.
 TestCase {
     function test_blocksFromTheFile() {

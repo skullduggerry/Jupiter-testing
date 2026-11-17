@@ -1,7 +1,7 @@
 import QtQuick
 import "../shell/services"
 
-// The OSD and the quick-settings surfaces (PROJECT_STRUCTURE.md, "OSD"):
+// The OSD and the quick-settings surfaces:
 // no OSD over a surface already showing the same panel, and a surface that
 // opens just after a key press starts on that key's page.
 TestCase {

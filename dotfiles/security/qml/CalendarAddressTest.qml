@@ -1,8 +1,7 @@
 import QtQuick
 import "../shell/services"
 
-// The Nextcloud address the calendar is set up with ("Calendar" in the
-// dotfiles' PROJECT_STRUCTURE.md): the app password goes out as HTTP Basic
+// The Nextcloud address the calendar is set up with: the app password goes out as HTTP Basic
 // auth on every request, so only https, or http that cannot leave the
 // machine. nextcloud-calendar.py checks again (security/test_nextcloud.py);
 // this is what the setup form says before anything is saved.

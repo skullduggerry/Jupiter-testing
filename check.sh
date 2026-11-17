@@ -17,8 +17,7 @@
 #
 # The repos are found next to this one, or at JUPITER_DOTFILES and
 # JUPITER_INSTALLER. Each repo is linted by scripts/lint.sh, with its own
-# settings, then scripts/test.sh runs the suites of all of them at once. See
-# "Running" in .github/PROJECT_STRUCTURE.md.
+# settings, then scripts/test.sh runs the suites of all of them at once.
 set -uo pipefail
 
 testing=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd) || exit 2

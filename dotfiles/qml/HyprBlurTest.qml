@@ -3,8 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "../shell/services"
 
-// Hyprland's blur as the Settings app hands it in (PROJECT_STRUCTURE.md,
-// "Wallpaper"): one Lua table, sent live with `hyprctl eval` (a stand-in in
+// Hyprland's blur as the Settings app hands it in: one Lua table, sent live with `hyprctl eval` (a stand-in in
 // fixtures/HyprBlurTest/bin notes the call) and kept in blur.lua, which
 // .config/hypr/styles/layout.lua applies at the next start.
 TestCase {
