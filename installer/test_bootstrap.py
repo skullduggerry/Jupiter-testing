@@ -173,10 +173,7 @@ class Bootstrap(unittest.TestCase):
         )
 
     # bootstrap.sh's git() and python3() look for the real program with
-    # `command -v`, which finds the function itself: on the NixOS ISO, with
-    # neither installed, they call one that is not there. A fix (type -P)
-    # waits for approval; this then passes, and the marker comes off.
-    @unittest.expectedFailure
+    # `type -P`: `command -v` would find the function itself.
     def test_on_the_nixos_iso_git_and_python_come_from_nixpkgs(self) -> None:
         self.iso()
         # nix shell nixpkgs#X --command X ...: the program from a folder of

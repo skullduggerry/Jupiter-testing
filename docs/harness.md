@@ -125,13 +125,17 @@ Then:
   `check.sh test all`, every suite of every repo, with Nix (single-user, as
   `ci`) evaluating the installer's NixOS modules against its flake's own
   nixpkgs;
-- **nixos**, on the runner's Nix: the installer's flake with real inputs and the laid
-  out dotfiles evaluated (`--override-input dotfiles`), the login helpers
-  built, the dotfiles' Hyprland configs checked by NixOS's Hyprland and
-  their QML suites run in NixOS's Quickshell, which differ from Arch's.
+- **nixos**, on the runner's Nix, `scripts/nixos-check.sh`: the
+  installer's flake with its locked inputs and the laid out dotfiles
+  evaluated (`--override-input dotfiles`), the login helpers built, the
+  dotfiles' Hyprland configs checked by NixOS's Hyprland and their QML
+  suites run in NixOS's Quickshell, which differ from Arch's.
 
-It runs daily on main as well: Arch's packages and nixpkgs move between
-pushes. The pre-push hook runs the arch job's checks before a push.
+It runs daily on main as well, as Arch's packages move between pushes.
+nixpkgs moves with the installer's `flake.lock`: its
+`update-flake-lock.yml` updates the lock weekly, runs
+`scripts/nixos-check.sh` on the new one, and only then commits it and
+starts this workflow on the commit. The pre-push hook runs the arch job's checks before a push.
 
 ## The security model
 

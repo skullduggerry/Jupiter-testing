@@ -4,6 +4,8 @@ of them, and it is the one the settings describe (harness/nix.py evaluates;
 skipped without Nix and nixpkgs).
 """
 
+import json
+import re
 import shutil
 import subprocess
 import unittest
@@ -15,6 +17,8 @@ from harness.nix import evaluate, example, skip_without_nix
 from installer.test_nixos_phase1 import Declining, Encrypting
 
 TOPLEVEL = "config.system.build.toplevel.drvPath"
+# A release tag: v1.2.0.
+RELEASE = r"v\d+\.\d+\.\d+$"
 
 
 def unencrypted() -> dict[str, Any]:
@@ -263,57 +267,88 @@ class WhatPhase1WritesUnencrypted(Declining):
         )
 
 
-class KnownIssues(unittest.TestCase):
-    """What the review found and a fix waits for (docs/nixos.md, "Known
-    issues"): each an expected failure, which once fixed passes and fails
-    the run until its marker comes off."""
+class Upkeep(unittest.TestCase):
+    """What keeps a NixOS install working as it ages and as nixpkgs moves:
+    the review against the NixOS manual, the nixpkgs option docs and
+    lanzaboote's guide found each of these missing once."""
 
-    @unittest.expectedFailure
     def test_qt_finds_the_systems_plugins(self) -> None:
         # Quickshell's wrapper reaches only its own image plugins (no
         # .webp), and Qt apps no qt6ct or Kvantum, unless NixOS points Qt at
         # the profile's plugins (its qt module).
-        plugins = evaluate(
-            "config.environment.profileRelativeSessionVariables"
-            ".QT_PLUGIN_PATH or []"
+        found = evaluate(
+            "{ plugins = config.environment.profileRelativeSessionVariables"
+            "  .QT_PLUGIN_PATH or [];"
+            "  theme = config.environment.variables.QT_QPA_PLATFORMTHEME"
+            "  or null; }"
         )
-        self.assertIn("/lib/qt-6/plugins", plugins)
+        self.assertIn("/lib/qt-6/plugins", found["plugins"])
+        # The theme stays the dotfiles' (uwsm/env), not the system's.
+        self.assertIsNone(found["theme"])
 
-    @unittest.expectedFailure
-    def test_docker_is_not_left_on_iptables_beside_nftables(self) -> None:
-        # nixpkgs' networking.nftables.enable: Docker does not work with it
-        # "without intervention".
+    def test_docker_is_not_beside_nftables(self) -> None:
+        # nixpkgs' networking.nftables.enable: Docker, which writes iptables
+        # rules of its own, does not work with it "without intervention".
         found = evaluate(
             "{ docker = config.virtualisation.docker.enable;"
-            "  nftables = config.networking.nftables.enable;"
-            "  backend = config.virtualisation.docker.daemon.settings"
-            ".firewall-backend or null; }"
+            "  nftables = config.networking.nftables.enable; }"
         )
-        self.assertFalse(
-            found["docker"]
-            and found["nftables"]
-            and found["backend"] != "nftables",
-            found,
-        )
+        self.assertTrue(found["docker"])
+        self.assertFalse(found["nftables"])
 
+    # Until update-flake-lock.yml has written the first lock.
     @unittest.expectedFailure
     def test_the_flakes_inputs_are_locked_in_the_repo(self) -> None:
         # Without a committed flake.lock, the first build writes one into the
         # machine's copy and stages it: nixpkgs stays at that revision on
         # every rebuild after, and once upstream commits a lock of its own,
         # bootstrap.sh's git pull --ff-only aborts on it.
-        self.assertTrue((INSTALLER / "flake.lock").is_file())
+        lock = json.loads((INSTALLER / "flake.lock").read_text())
+        nodes = lock["nodes"]
+        self.assertEqual(
+            set(nodes["root"]["inputs"]), {"nixpkgs", "lanzaboote", "dotfiles"}
+        )
+        for name in ("nixpkgs", "lanzaboote", "dotfiles"):
+            with self.subTest(input=name):
+                self.assertRegex(
+                    nodes[name]["locked"]["rev"], r"^[0-9a-f]{40}$"
+                )
+        self.assertRegex(nodes["lanzaboote"]["original"]["ref"], RELEASE)
 
-    @unittest.expectedFailure
+    def test_lanzaboote_is_a_release(self) -> None:
+        # As lanzaboote's guide pins it: its default branch moves under you.
+        flake = (INSTALLER / "flake.nix").read_text()
+        url = re.search(r'"github:nix-community/lanzaboote([^"]*)"', flake)
+        assert url, "flake.nix names no lanzaboote input"
+        self.assertRegex(url.group(1), "^/" + RELEASE)
+
     def test_the_boot_partition_and_the_store_are_kept_in_bounds(self) -> None:
         # A 1 GiB ESP takes a signed image a generation; without a limit and
-        # garbage collection it fills, and a rebuild fails.
+        # garbage collection it fills, and a rebuild fails. lanzaboote's
+        # limit follows systemd-boot's.
         found = evaluate(
             "{ limit = config.boot.loader.systemd-boot.configurationLimit;"
-            "  gc = config.nix.gc.automatic; }"
+            "  gc = config.nix.gc.automatic;"
+            "  optimise = config.nix.optimise.automatic; }"
         )
         self.assertIsNotNone(found["limit"])
+        self.assertLessEqual(found["limit"], 10)
         self.assertTrue(found["gc"])
+        self.assertTrue(found["optimise"])
+
+    def test_electron_apps_run_on_wayland(self) -> None:
+        self.assertEqual(
+            evaluate("config.environment.sessionVariables.NIXOS_OZONE_WL"),
+            "1",
+        )
+
+    def test_zsh_runs_compinit_once(self) -> None:
+        # .zshrc runs its own, after its fpath; the system's would be a
+        # second.
+        self.assertRegex(
+            (DOTFILES / ".config/.zshrc").read_text(), r"(?m)^[^#]*compinit"
+        )
+        self.assertFalse(evaluate("config.programs.zsh.enableGlobalCompInit"))
 
 
 if __name__ == "__main__":

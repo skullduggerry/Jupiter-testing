@@ -26,7 +26,7 @@ Commit and push straight to `main`, here and in Jupiter-dotfiles and Jupiter-ins
 | `testing/` | this repo's own tooling, each part made to fail: both runners, `lint.sh`, `check.sh`, CI's layout, the VM rig, the docs' references (`test_docs.py`) |
 | `vm/` | the installer end to end in a VM (`scripts/vm.sh`, not part of `check.sh`) |
 | `check.sh` | the one command, which every repo's `check.sh` hands over to |
-| `scripts/` | `lint.sh` (one repo's formatters and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, `ci-repos.sh` (CI's layout of the repos), the dotfiles' lint helpers `quickshell-types.py` and `pasted-glyphs.py` |
+| `scripts/` | `lint.sh` (one repo's formatters and linters), `test.sh` (the suites under coverage), `install-hooks.sh`, `ci-repos.sh` (CI's layout of the repos), `nixos-check.sh` (CI's NixOS checks), the dotfiles' lint helpers `quickshell-types.py` and `pasted-glyphs.py` |
 | `.githooks/` | pre-push: format and lint the pushed repo, then every repo's suites |
 | `pyproject.toml`, `.editorconfig` | ruff, mypy (strict) and coverage here; the tested repos keep their own, which `lint.sh` reads there |
 

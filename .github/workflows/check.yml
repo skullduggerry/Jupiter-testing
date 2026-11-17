@@ -1,8 +1,9 @@
 # Checks every push and pull request against both setups the installer
 # supports, Arch and NixOS, whichever repo it is to: a change to one repo
 # that breaks either is caught here. The same file in every Jupiter repo (testing/test_ci.py holds them to
-# it); daily on main as well, as Arch's packages and nixpkgs move between
-# pushes.
+# it); daily on main as well, as Arch's packages move between pushes
+# (nixpkgs moves with the installer's flake.lock, which its
+# update-flake-lock.yml updates, running this file's checks on it).
 #
 # Both jobs lay the repos out with Jupiter-testing's scripts/ci-repos.sh: the
 # pushed one, and the others from the same branch where they have it.
@@ -12,11 +13,12 @@
 #          the installer's on Arch and on NixOS, its NixOS modules evaluated
 #          by Nix against the flake's own nixpkgs.
 #          Privileged: the suites' stand-ins use unshare.
-#   nixos  on the runner's Nix: the installer's flake, with the pushed
-#          dotfiles and real inputs, evaluated and its login helpers built;
-#          the dotfiles' Hyprland config checked by NixOS's Hyprland, and
-#          their QML suites run in NixOS's Quickshell, as these versions
-#          differ from Arch's.
+#   nixos  on the runner's Nix, Jupiter-testing's scripts/nixos-check.sh: the
+#          installer's flake, with the pushed dotfiles and its locked
+#          inputs, evaluated and its login helpers built; the dotfiles'
+#          Hyprland config checked by NixOS's Hyprland, and their QML
+#          suites run in NixOS's Quickshell, as these versions differ from
+#          Arch's.
 name: Check
 
 on:
@@ -111,8 +113,8 @@ jobs:
           as_ci bash "$script" checkout "$BRANCH" | tee layout
           echo "PUSHED=$(sed -n 's/: the push.*//p' layout)" >> "$GITHUB_ENV"
       - name: Find the flake's nixpkgs
-        # The NixOS suites evaluate the modules against the nixpkgs the flake
-        # pins (the newest unstable while it has no flake.lock).
+        # The NixOS suites evaluate the modules against the nixpkgs the
+        # installer's flake.lock pins.
         id: nixpkgs
         run: |
           nixpkgs=$(sudo -u ci -H env NIX_CONFIG="$NIX" nix eval --raw --impure --expr \
@@ -164,45 +166,7 @@ jobs:
             script=Jupiter-testing/scripts/ci-repos.sh
           fi
           bash "$script" checkout "$BRANCH"
-      - name: Evaluate the system with these dotfiles
-        # hosts/example, a whole system, with lanzaboote and nixpkgs as the
-        # flake has them and the dotfiles as laid out (not the flake's pin).
-        working-directory: Jupiter-installer
-        run: |
-          flake() { nix "$@" --override-input dotfiles "path:$GITHUB_WORKSPACE/Jupiter-dotfiles"; }
-          host=path:.#nixosConfigurations.example
-          flake eval --raw "$host.config.system.build.toplevel.drvPath"
-          echo
-          # The login screen's pam_exec helpers and root's copy of its installer.
-          flake build --no-link --print-out-paths \
-            "$host.config.system.build.jupiter.fingerAsked" \
-            "$host.config.system.build.jupiter.diskEncrypted" \
-            "$host.config.system.build.jupiter.greeterRoot"
-          for name in hyprland quickshell python3; do
-            echo "$name=$(flake build --no-link --print-out-paths "$host.pkgs.$name.out")" >> "$GITHUB_ENV"
-          done
-      - name: Hyprland's config check, with NixOS's Hyprland
-        run: |
-          "$hyprland/bin/Hyprland" --version | head -1
-          for config in .config/hypr/hyprland.lua etc/greetd/hyprland.lua; do
-            out=$(XDG_RUNTIME_DIR=$(mktemp -d) "$hyprland/bin/Hyprland" --verify-config \
-              -c "$GITHUB_WORKSPACE/Jupiter-dotfiles/$config" 2>&1 || true)
-            if printf '%s\n' "$out" | grep -q 'config ok'; then
-              echo "ok    $config"
-            else
-              printf '%s\n' "$out" | grep -iE 'error|unknown' >&2
-              echo "FAIL  $config does not verify with NixOS's Hyprland" >&2
-              failed=1
-            fi
-          done
-          exit "${failed:-0}"
-      - name: The dotfiles' QML suites, in NixOS's Quickshell
-        if: success() || failure()
-        working-directory: Jupiter-testing
-        run: |
-          # The lock screen's PAM sandbox needs user namespaces, which
-          # Ubuntu's AppArmor keeps from unprivileged users.
-          sudo sysctl -q kernel.apparmor_restrict_unprivileged_userns=0 || true
-          "$quickshell/bin/qs" --version
-          PATH="$quickshell/bin:$PATH" "$python3/bin/python3" -m harness.run \
-            dotfiles/test_qml.py dotfiles/security/test_lock_screen.py
+      - name: The system, its Hyprland and its Quickshell
+        # Jupiter-testing's scripts/nixos-check.sh says what it checks; the
+        # update of the installer's flake.lock runs it too.
+        run: bash Jupiter-testing/scripts/nixos-check.sh

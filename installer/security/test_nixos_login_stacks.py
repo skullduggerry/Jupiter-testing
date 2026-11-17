@@ -15,9 +15,11 @@ pam_exec helpers are built and run, as greetd's PAM would, with no PATH.
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
-from harness import DOTFILES
+from harness import DOTFILES, executable
 from harness.nix import evaluate, skip_without_nix
 
 # The lock screen's reader, which login.nix declares from this file.
@@ -165,9 +167,12 @@ class Elsewhere(unittest.TestCase):
         firewall = evaluate(
             "{ inherit (config.networking.firewall) enable allowedTCPPorts"
             "  allowedUDPPorts allowedTCPPortRanges allowedUDPPortRanges"
-            "  extraInputRules; }"
+            "  extraCommands;"
+            "  nftables = config.networking.nftables.enable; }"
         )
         self.assertTrue(firewall["enable"])
+        # iptables, which Docker writes its own rules beside.
+        self.assertFalse(firewall["nftables"])
         for kind in ("TCP", "UDP"):
             for span in firewall[f"allowed{kind}PortRanges"]:
                 with self.subTest(kind=kind, span=span):
@@ -179,26 +184,41 @@ class Elsewhere(unittest.TestCase):
                     if 1714 <= p <= 1764
                 ]
             )
-        rules_ = [
-            line.split()
-            for line in firewall["extraInputRules"].splitlines()
-            if "1714-1764" in line
-        ]
-        self.assertEqual(len(rules_), 4)
-        for rule in rules_:
-            with self.subTest(rule=rule):
-                self.assertIn(rule[1], ("saddr",))
-                self.assertTrue(
-                    " ".join(rule).startswith(
-                        (
-                            "ip saddr { 10.0.0.0/8, 172.16.0.0/12, "
-                            "192.168.0.0/16 }",
-                            "ip6 saddr fe80::/10",
-                        )
-                    ),
-                    rule,
+        # The rules as the firewall's start adds them: its extra commands
+        # run by bash, iptables and ip6tables standing in to record them.
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = Path(tmp) / "calls"
+            for name in ("iptables", "ip6tables"):
+                executable(
+                    Path(tmp) / name,
+                    f'#!/bin/sh\necho "{name} $*" >> "{calls}"\n',
                 )
-                self.assertEqual(rule[-1], "accept")
+            subprocess.run(
+                ["bash", "-euc", firewall["extraCommands"]],
+                env={"PATH": f"{tmp}:/usr/bin:/bin"},
+                check=True,
+            )
+            # Other modules add theirs (Docker's NAT): only the ones
+            # naming KDE Connect's ports are this one's.
+            added = [
+                line
+                for line in calls.read_text().splitlines()
+                if "1714" in line or "1764" in line
+            ]
+        accept = "--dport 1714:1764 -j nixos-fw-accept"
+        self.assertEqual(
+            sorted(added),
+            sorted(
+                f"{table} -A nixos-fw -p {proto} -s {net} {accept}"
+                for proto in ("tcp", "udp")
+                for table, net in (
+                    ("iptables", "10.0.0.0/8"),
+                    ("iptables", "172.16.0.0/12"),
+                    ("iptables", "192.168.0.0/16"),
+                    ("ip6tables", "fe80::/10"),
+                )
+            ),
+        )
 
 
 @unittest.skipUnless(shutil.which("nix-build"), "needs Nix (nix-build)")
