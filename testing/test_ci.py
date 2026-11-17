@@ -213,8 +213,28 @@ class Workflows(unittest.TestCase):
         self.assertIn("scripts/nixos-check.sh\n", text)
         self.assertEqual(
             sorted(p.name for p in (TESTING / self.WORKFLOWS).iterdir()),
-            ["check.yml", "mirror-codeberg.yml"],
+            ["check.yml", "mirror-codeberg.yml", "vm.yml"],
         )
+
+    def test_the_vm_runs_or_fails(self) -> None:
+        # scripts/vm.sh skips every scenario where the rig cannot run, which
+        # a green run would hide: the workflow asks the rig first, gives it
+        # KVM and the ISO, and the whole installer history its scenario of
+        # an old revision installs.
+        path = TESTING / self.WORKFLOWS / "vm.yml"
+        text = "".join(
+            line
+            for line in path.read_text().splitlines(keepends=True)
+            if not line.lstrip().startswith("#")
+        )
+        self.assertIn("rig.missing()", text)
+        self.assertIn("raise SystemExit(1 if why else 0)", text)
+        self.assertIn("scripts/vm.sh", text)
+        self.assertIn("/dev/kvm", text)
+        self.assertIn("archlinux-x86_64.iso", text)
+        self.assertIn("sha256sum -c", text)
+        self.assertIn("fetch --quiet --unshallow", text)
+        self.assertIn("mkfs.btrfs", text)
 
     def test_this_repo_has_what_the_skipped_tests_need(self) -> None:
         # What the other repos' CI skips the tests of, by what they look for.
