@@ -224,6 +224,8 @@ class Workflows(unittest.TestCase):
                 self.assertIn(f" {package}", text)
         # The PAM sandbox's user namespace, which GitHub's Ubuntu restricts.
         self.assertIn("apparmor_restrict_unprivileged_userns", text)
+        # newuidmap's own capabilities, for a namespace of two users.
+        self.assertIn("setcap cap_setuid=ep /usr/bin/newuidmap", text)
 
 
 # check.sh's stand-in: records its arguments; with --fix it changes the
