@@ -296,8 +296,6 @@ class Upkeep(unittest.TestCase):
         self.assertTrue(found["docker"])
         self.assertFalse(found["nftables"])
 
-    # Until update-flake-lock.yml has written the first lock.
-    @unittest.expectedFailure
     def test_the_flakes_inputs_are_locked_in_the_repo(self) -> None:
         # Without a committed flake.lock, the first build writes one into the
         # machine's copy and stages it: nixpkgs stays at that revision on
