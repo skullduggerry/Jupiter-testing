@@ -6,7 +6,7 @@ Read the tested repo's `AGENTS.md` before changing anything there: its conventio
 
 ## Git
 
-Commit and push straight to `main`, here and in Jupiter-dotfiles and Jupiter-installer: no branches or pull requests unless asked. CI checks Jupiter-dotfiles and Jupiter-installer, each by its own `.github/workflows/check.yml`, on Arch and on NixOS; this repo's Actions only mirror it to Codeberg.
+Commit and push straight to `main`, here and in Jupiter-dotfiles and Jupiter-installer: no branches or pull requests unless asked. CI checks each repo by its own `.github/workflows/check.yml`, on Arch and on NixOS: Jupiter-dotfiles' and Jupiter-installer's that repo alone, this one's all three with its tools as pushed, the tests the others skip included.
 
 ## Sources of truth, in order
 

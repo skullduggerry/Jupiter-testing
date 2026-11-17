@@ -134,9 +134,17 @@ that branch, else from the default branch, each told by its files. Then:
 
 The installer's suites read the dotfiles it installs, as the laid out ones:
 a dotfiles change that breaks the installer shows in the installer's next
-run, daily on main, as Arch's packages move between pushes too. This repo's
-own Actions run no checks, only the mirror to Codeberg: a change here is
-checked by `./check.sh check all` and the pre-push hook before it is pushed.
+run, daily on main, as Arch's packages move between pushes too.
+
+This repo's own `check.yml` checks all three repos with its tools as pushed
+(`check.sh check all`, `scripts/nixos-check.sh` with both parts), the other
+two from its branch where they have it, else from main: a change to
+`lint.sh`, `test.sh` or the harness can break any repo's checks. Its Arch
+job has what the other two lack: gnome-keyring, the session bus and
+greetd's folder, and user namespaces with their capabilities (the runner's
+Ubuntu withholds them through AppArmor, which the privileged container
+lifts), so the PAM sandbox and `newuidmap` work. `harness/run.py` names
+every test still skipped, with why.
 nixpkgs moves with the installer's `flake.lock`: its
 `update-flake-lock.yml` updates the lock weekly, runs
 `scripts/nixos-check.sh` (both parts) on the new one, and only then commits
