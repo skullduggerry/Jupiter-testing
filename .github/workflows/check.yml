@@ -124,10 +124,14 @@ jobs:
           sudo -u ci -H env NIX_CONFIG="$NIX" nix build --impure --out-link /home/ci/tools/nix \
             --expr "with import $nixpkgs { }; buildEnv { name = \"nix-linters\"; paths = [ nixfmt statix deadnix ]; }"
         env:
+          # The job's token for GitHub's API, as install-nix-action gives the
+          # nixos job: unauthenticated, fetching the flake's inputs runs into
+          # its rate limit.
           NIX: |
             experimental-features = nix-command flakes
             build-users-group =
             sandbox = false
+            access-tokens = github.com=${{ github.token }}
       - name: Lint the pushed repo
         run: |
           cd "$PUSHED"
@@ -141,10 +145,14 @@ jobs:
           sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nix/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
             JUPITER_NIXPKGS="$JUPITER_NIXPKGS" NIX_CONFIG="$NIX" ./check.sh test all
         env:
+          # The job's token for GitHub's API, as install-nix-action gives the
+          # nixos job: unauthenticated, fetching the flake's inputs runs into
+          # its rate limit.
           NIX: |
             experimental-features = nix-command flakes
             build-users-group =
             sandbox = false
+            access-tokens = github.com=${{ github.token }}
 
   nixos:
     name: NixOS (flake, its Hyprland and Quickshell)
