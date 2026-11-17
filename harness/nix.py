@@ -5,8 +5,10 @@ settings, the firewall, the file systems.
 The modules are evaluated as the flake does (nixos/, a host's
 hardware-configuration.nix and its settings), with nixpkgs from
 JUPITER_NIXPKGS (a nixpkgs checkout or channel tarball, unpacked), or else
-the one Nix finds as <nixpkgs> on its path, and lanzaboote's options stood
-in for, as fetching it needs GitHub. Nothing is built: evaluating is enough
+the one Nix finds as <nixpkgs> on its path, and the options of lanzaboote,
+home-manager and Stylix stood in for, as fetching them needs GitHub: what
+the modules set there is read back as set, and a user's home-manager
+generation is an empty folder. Nothing is built: evaluating is enough
 to read the configuration. Without Nix, or without nixpkgs, the tests that
 need it are skipped, saying which.
 """
@@ -25,14 +27,36 @@ from typing import Any
 
 from . import DOTFILES, INSTALLER
 
-LANZABOOTE = """\
-# lanzaboote's options alone, where its module cannot be fetched.
-{ lib, ... }:
+STUBS = """\
+# The options of the flake's other modules, where they cannot be fetched:
+# lanzaboote's, and home-manager's and Stylix's as nixos/theme.nix sets them.
+{ lib, pkgs, ... }:
+let
+  inherit (lib) mkOption types;
+  anything = mkOption { type = types.anything; default = { }; };
+  user = types.submodule {
+    freeformType = types.attrsOf types.anything;
+    options.home = {
+      stateVersion = mkOption { type = types.str; };
+      activationPackage = mkOption {
+        type = types.package;
+        default = pkgs.emptyDirectory;
+      };
+    };
+  };
+in
 {
   options.boot.lanzaboote = {
     enable = lib.mkEnableOption "lanzaboote";
-    pkiBundle = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; };
+    pkiBundle = mkOption { type = types.nullOr types.str; default = null; };
   };
+  options.home-manager = {
+    useGlobalPkgs = anything;
+    useUserPackages = anything;
+    backupFileExtension = anything;
+    users = mkOption { type = types.attrsOf user; default = { }; };
+  };
+  options.stylix = anything;
 }
 """
 # Found once, on the PATH the run started with: a test may stand in for every
@@ -111,7 +135,7 @@ def evaluate(expression: str, settings: dict[str, Any] | None = None) -> Any:
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp)
         (folder / "evaluate.nix").write_text(EVALUATE)
-        (folder / "lanzaboote.nix").write_text(LANZABOOTE)
+        (folder / "stubs.nix").write_text(STUBS)
         (folder / "settings.json").write_text(
             json.dumps(settings if settings is not None else example())
         )
@@ -120,7 +144,7 @@ def evaluate(expression: str, settings: dict[str, Any] | None = None) -> Any:
             "installer": INSTALLER,
             "dotfiles": DOTFILES,
             "settings": folder / "settings.json",
-            "stub": folder / "lanzaboote.nix",
+            "stub": folder / "stubs.nix",
         }
         given = " ".join(
             f"{name} = {path};" for name, path in arguments.items()

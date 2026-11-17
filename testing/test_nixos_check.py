@@ -3,7 +3,9 @@ with the laid-out dotfiles, and that one failing check neither hides the
 others nor passes.
 
 nix, Hyprland, qs and python3 are stand-ins that record how they were
-called: nix "builds" each package as a folder of stand-ins, Hyprland
+called: nix "builds" each package as a folder of stand-ins (the
+home-manager generation with a specialisation per name in $SPECIALISED),
+Hyprland
 rejects a config whose path holds $REJECT, and the QML suites exit with
 $QML.
 """
@@ -20,7 +22,15 @@ SCRIPT = TESTING / "scripts/nixos-check.sh"
 RECORD = 'echo "${0##*/} $*" >> "$CALLS"\n'
 NIX = f"""#!/bin/sh
 {RECORD}case "$1 $*" in
+    *settings.user*) echo jupiter ;;
     eval\\ *) [ -z "${{BROKEN-}}" ] || exit 1; echo /nix/store/x-nixos.drv ;;
+    *users.jupiter.home.activationPackage*)
+        for theme in $SPECIALISED; do
+            mkdir -p "$PKGS/home/specialisation/$theme"
+            printf '#!/bin/sh\\n' >"$PKGS/home/specialisation/$theme/activate"
+            chmod +x "$PKGS/home/specialisation/$theme/activate"
+        done
+        echo "$PKGS/home" ;;
     *pkgs.hyprland.out*) echo "$PKGS/hyprland" ;;
     *pkgs.quickshell.out*) echo "$PKGS/quickshell" ;;
     *pkgs.python3.out*) echo "$PKGS/python3" ;;
@@ -48,11 +58,16 @@ class NixosCheck(unittest.TestCase):
         executable(pkgs / "hyprland/bin/Hyprland", HYPRLAND)
         executable(pkgs / "quickshell/bin/qs", QS)
         executable(pkgs / "python3/bin/python3", PYTHON)
+        base16 = self.root / "Jupiter-dotfiles/.config/wallust/base16"
+        base16.mkdir(parents=True)
+        for theme in ("Nord", "Oxocarbon-Dark"):
+            (base16 / f"{theme}.json").write_text("{}")
         self.calls = self.root / "calls"
         self.env = {
             "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}",
             "CALLS": str(self.calls),
             "PKGS": str(pkgs),
+            "SPECIALISED": "Nord Oxocarbon-Dark",
         }
 
     def run_check(self, **env: str) -> tuple[int, list[str], str]:
@@ -97,6 +112,17 @@ class NixosCheck(unittest.TestCase):
             calls,
         )
         self.assertIn(f"in {self.root}/Jupiter-testing", output)
+        self.assertIn(
+            "home-manager.users.jupiter.home.activationPackage",
+            " ".join(c for c in nix if " build " in f" {c} "),
+        )
+
+    def test_a_theme_without_its_specialisation_fails(self) -> None:
+        status, _, output = self.run_check(SPECIALISED="Oxocarbon-Dark")
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "FAIL  the Nord theme has no specialisation for apply.sh", output
+        )
 
     def test_a_rejected_config_fails_after_the_qml_suites(self) -> None:
         status, calls, output = self.run_check(REJECT="greetd")

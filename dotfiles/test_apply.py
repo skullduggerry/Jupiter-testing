@@ -7,7 +7,10 @@ the portal dark or light, and is recorded with its scope; --shell-only
 renders the shell's palette alone, and without -s nothing; no argument
 applies the recorded theme again the same way, or the default; a theme
 saved in colorschemes/ goes through `cs`; --from generates a scheme first
-and applies it by the image's name.
+and applies it by the image's name. On NixOS, the home-manager generation
+Jupiter-installer builds (a stand-in here, whose activations record
+themselves) is switched to the theme's specialisation, or the plain one,
+unless it is already active.
 """
 
 from __future__ import annotations
@@ -36,6 +39,15 @@ mkdir -p "$HOME/.cache/wallust"
 printf '[Colors:Window]\\nBackgroundNormal=1,2,3\\n' >"$HOME/.cache/wallust/kdeglobals"
 printf 'prefer-dark\\n' >"$HOME/.cache/wallust/color-scheme"
 """
+# A home-manager generation's activate: records itself, then marks its
+# generation the active one, where home-manager does.
+ACTIVATE = """#!/bin/sh
+here=$(cd "$(dirname "$0")" && pwd -P)
+printf 'activate %s %s\\n' "${here##*/}" "$HOME_MANAGER_BACKUP_EXT" >>"$CALLS"
+[ -z "${BROKEN-}" ] || exit 1
+mkdir -p "$HOME/.local/state/home-manager/gcroots"
+ln -sfn "$here" "$HOME/.local/state/home-manager/gcroots/current-home"
+"""
 GSETTINGS = """#!/bin/sh
 printf '%s\\n' "gsettings $*" >>"$CALLS"
 """
@@ -58,6 +70,8 @@ class Apply(unittest.TestCase):
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "CALLS": str(self.calls),
             "APPEARANCE_ACCENT": "green",
+            # Not NixOS, unless a test makes it so, whatever this machine is.
+            "JUPITER_HOME_GENERATION": str(self.home / "no-generation"),
         }
 
     def apply(self, *args: str) -> list[str]:
@@ -117,6 +131,71 @@ class Apply(unittest.TestCase):
             "a scheme from the image, applied by its name",
         )
         self.assertEqual(self.state.read_text(), "Lake\nall\n")
+
+    def nixos(self, *themes: str) -> None:
+        """A home-manager generation with a specialisation per theme."""
+        generation = self.home / "home"
+        executable(generation / "activate", ACTIVATE)
+        for theme in themes:
+            executable(
+                generation / "specialisation" / theme / "activate", ACTIVATE
+            )
+        self.env["JUPITER_HOME_GENERATION"] = str(generation)
+
+    def activations(self, calls: list[str]) -> list[str]:
+        return [call for call in calls if call.startswith("activate ")]
+
+    def test_on_nixos_a_theme_switches_to_its_specialisation(self) -> None:
+        self.nixos("Nord", "Oxocarbon-Dark")
+        self.assertEqual(
+            self.activations(self.apply("Nord")),
+            ["activate Nord before-stylix"],
+        )
+        self.assertEqual(
+            self.activations(self.apply("Nord")),
+            [],
+            "already active: no activation",
+        )
+        self.assertEqual(
+            self.activations(self.apply()), [], "nor at the next login"
+        )
+        self.assertEqual(
+            self.activations(self.apply("Oxocarbon-Dark")),
+            ["activate Oxocarbon-Dark before-stylix"],
+        )
+
+    def test_on_nixos_another_theme_takes_the_plain_generation(self) -> None:
+        self.nixos("Nord")
+        self.apply("Nord")
+        self.assertEqual(
+            self.activations(self.apply("Dracula")),
+            ["activate home before-stylix"],
+            "the default theme's, rather than another theme's colours",
+        )
+        self.assertEqual(self.activations(self.apply("Dracula")), [])
+
+    def test_on_nixos_shell_only_leaves_the_apps(self) -> None:
+        self.nixos("Nord")
+        self.assertEqual(
+            self.activations(self.apply("--shell-only", "Nord")), []
+        )
+
+    def test_on_nixos_a_failed_activation_still_applies_the_theme(
+        self,
+    ) -> None:
+        self.nixos("Nord")
+        self.env["BROKEN"] = "1"
+        self.calls.write_text("")
+        result = subprocess.run(
+            [str(SCRIPT), "Nord"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("home-manager's activation failed", result.stderr)
+        self.assertEqual(self.state.read_text(), "Nord\nall\n")
 
 
 if __name__ == "__main__":

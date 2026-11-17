@@ -7,7 +7,9 @@
 # The installer's flake evaluated for hosts/example, a whole system, with
 # lanzaboote and nixpkgs as its flake.lock has them and the laid-out
 # dotfiles (not the lock's); the login screen's pam_exec helpers and root's
-# copy of its installer built; the dotfiles' Hyprland configs verified by
+# copy of its installer built; the user's home-manager generation built,
+# with Stylix's specialisation for each theme the dotfiles pre-build
+# (base16/), as apply.sh activates them; the dotfiles' Hyprland configs verified by
 # NixOS's Hyprland; their QML suites run in NixOS's Quickshell. Every check
 # runs even after one fails, and each failure is named. CI's nixos job runs
 # this, and Jupiter-installer's update of flake.lock runs it on the new lock
@@ -37,6 +39,19 @@ flake build --no-link --print-out-paths \
     "$host.config.system.build.jupiter.diskEncrypted" \
     "$host.config.system.build.jupiter.greeterRoot" ||
     failed+=("the login screen's helpers do not build")
+
+echo "== the theme's home-manager generation, built"
+user=$(flake eval --raw "$host.config.jupiter.settings.user")
+if generation=$(flake build --no-link --print-out-paths \
+    "$host.config.home-manager.users.$user.home.activationPackage"); then
+    for scheme in "$root"/Jupiter-dotfiles/.config/wallust/base16/*.json; do
+        theme=$(basename "$scheme" .json)
+        [[ -x $generation/specialisation/$theme/activate ]] ||
+            failed+=("the $theme theme has no specialisation for apply.sh")
+    done
+else
+    failed+=("the theme's home-manager generation does not build")
+fi
 
 for name in hyprland quickshell python3; do
     path=$(flake build --no-link --print-out-paths "$host.pkgs.$name.out") || {

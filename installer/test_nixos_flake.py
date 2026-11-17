@@ -303,10 +303,15 @@ class Upkeep(unittest.TestCase):
         # bootstrap.sh's git pull --ff-only aborts on it.
         lock = json.loads((INSTALLER / "flake.lock").read_text())
         nodes = lock["nodes"]
-        self.assertEqual(
-            set(nodes["root"]["inputs"]), {"nixpkgs", "lanzaboote", "dotfiles"}
-        )
-        for name in ("nixpkgs", "lanzaboote", "dotfiles"):
+        inputs = {
+            "nixpkgs",
+            "lanzaboote",
+            "home-manager",
+            "stylix",
+            "dotfiles",
+        }
+        self.assertEqual(set(nodes["root"]["inputs"]), inputs)
+        for name in sorted(inputs):
             with self.subTest(input=name):
                 self.assertRegex(
                     nodes[name]["locked"]["rev"], r"^[0-9a-f]{40}$"
@@ -347,6 +352,86 @@ class Upkeep(unittest.TestCase):
             (DOTFILES / ".config/.zshrc").read_text(), r"(?m)^[^#]*compinit"
         )
         self.assertFalse(evaluate("config.programs.zsh.enableGlobalCompInit"))
+
+
+class Theme(unittest.TestCase):
+    """Stylix beside the dotfiles' templates (nixos/theme.nix): a
+    home-manager specialisation per scheme the dotfiles pre-build, where
+    apply.sh finds it, and the default theme's colours on the system."""
+
+    SCHEMES = DOTFILES / ".config/wallust/base16"
+    HOME = f'config.home-manager.users."{example()["user"]}"'
+
+    def scheme(self, theme: str) -> Any:
+        return json.loads((self.SCHEMES / f"{theme}.json").read_text())
+
+    def test_a_specialisation_per_scheme(self) -> None:
+        themes = sorted(path.stem for path in self.SCHEMES.glob("*.json"))
+        self.assertIn("Nord", themes)
+        found = evaluate(
+            f"let s = {self.HOME}.specialisation; in"
+            "  builtins.mapAttrs (_: v: v.configuration.stylix) s"
+        )
+        self.assertEqual(sorted(found), themes)
+        self.assertEqual(
+            found["Nord"],
+            {
+                "base16Scheme": self.scheme("Nord"),
+                "polarity": "dark",
+            },
+        )
+        self.assertEqual(found["Catppuccin-Latte"]["polarity"], "light")
+
+    def test_the_system_takes_apply_shs_default_theme(self) -> None:
+        apply = (DOTFILES / ".config/wallust/apply.sh").read_text()
+        default = re.search(r"WALLUST_THEME:-([\w-]+)\}", apply)
+        assert default, "apply.sh names no default theme"
+        found = evaluate(
+            "{ inherit (config.stylix) enable autoEnable base16Scheme"
+            "  polarity targets; }"
+        )
+        self.assertEqual(found["base16Scheme"], self.scheme(default.group(1)))
+        self.assertTrue(found["enable"])
+        # Only what the templates do not reach: theirs stay off.
+        self.assertFalse(found["autoEnable"])
+        self.assertEqual(
+            found["targets"],
+            {"console": {"enable": True}, "fontconfig": {"enable": True}},
+        )
+
+    def test_the_apps_configs_only(self) -> None:
+        found = evaluate(
+            f"let h = {self.HOME}; in {{ inherit (h.stylix) targets;"
+            "  packages = map (p: h.programs.${p}.package)"
+            '    [ "btop" "mpv" "zed-editor" ]; }'
+        )
+        self.assertEqual(
+            found["targets"],
+            {name: {"enable": True} for name in ("btop", "mpv", "zed")},
+        )
+        # packages.nix installs them, as pacman.txt does on Arch.
+        self.assertEqual(found["packages"], [None, None, None])
+        packages = (INSTALLER / "nixos/packages.nix").read_text()
+        for package in ("btop", "mpv", "zed-editor"):
+            self.assertRegex(packages, rf"(?m)^\s+{package}$")
+
+    def test_apply_sh_finds_the_generation(self) -> None:
+        found = evaluate(
+            f'{{ etc = config.environment.etc."jupiter/home".source;'
+            f"  generation = {self.HOME}.home.activationPackage; }}"
+        )
+        self.assertEqual(found["etc"], found["generation"])
+        apply = (DOTFILES / ".config/wallust/apply.sh").read_text()
+        self.assertIn(
+            "home=${JUPITER_HOME_GENERATION:-/etc/jupiter/home}", apply
+        )
+
+    def test_an_app_config_in_the_way_is_kept(self) -> None:
+        # A btop.conf btop wrote itself would stop the activation at boot;
+        # apply.sh passes the same extension when it activates.
+        extension = evaluate("config.home-manager.backupFileExtension")
+        apply = (DOTFILES / ".config/wallust/apply.sh").read_text()
+        self.assertIn(f"HOME_MANAGER_BACKUP_EXT={extension} ", apply)
 
 
 if __name__ == "__main__":
