@@ -238,6 +238,27 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(Upstream.asked, ["/core/os/x86_64/core.db"])
 
 
+class Dialogue(unittest.TestCase):
+    """Phase 1's questions in the order the installed revision asks them."""
+
+    def questions(self, answers: install.Answers) -> list[str]:
+        return [
+            pattern.split(" ")[0].lstrip("^")
+            for pattern, _ in install.dialogue(answers)
+        ]
+
+    def test_the_keymap_first(self) -> None:
+        asked = self.questions(install.Answers())
+        self.assertEqual(asked[:2], ["Keymap", "Disk(?:"])
+        self.assertEqual(asked.count("Keymap"), 1)
+
+    def test_the_keymap_last_as_phase_1_asked_it_before(self) -> None:
+        asked = self.questions(install.Answers(keymap_first=False))
+        self.assertEqual(asked[0], "Disk(?:")
+        self.assertEqual(asked[-3:], ["Locale", "Keymap", "Erase"])
+        self.assertEqual(asked.count("Keymap"), 1)
+
+
 class Skipping(unittest.TestCase):
     def test_names_what_is_missing(self) -> None:
         with mock.patch("shutil.which", return_value=None):

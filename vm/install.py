@@ -51,6 +51,9 @@ class Answers:
     # to leave it alone.
     data: dict[str, str] = field(default_factory=dict)
     keymap: str = "us"
+    # False: the keymap last, after the locale, as phase 1 asked it before it
+    # loaded the keymap ahead of the passwords (BEFORE's revision).
+    keymap_first: bool = True
     # The firmware phase 1 runs on: OVMF with Secure Boot (in Setup Mode), or
     # without, as a machine whose keys cannot be enrolled during the install.
     secure_boot: bool = True
@@ -63,10 +66,9 @@ def dialogue(answers: Answers) -> list[tuple[str, str]]:
     """Phase 1's questions in order, and the answers."""
     # The keymap first, loaded before any password; the disk with a default
     # only where one disk would take the system.
-    lines: list[tuple[str, str]] = [
-        (r"Keymap \[us\]: $", answers.keymap),
-        (r"Disk(?: \[[^]]*\])?: $", answers.disk),
-    ]
+    keymap = (r"Keymap \[us\]: $", answers.keymap)
+    lines: list[tuple[str, str]] = [keymap] if answers.keymap_first else []
+    lines.append((r"Disk(?: \[[^]]*\])?: $", answers.disk))
     if answers.encrypt is not None:
         lines.append(
             (
@@ -98,8 +100,10 @@ def dialogue(answers: Answers) -> list[tuple[str, str]]:
         (r"Repeat it: $", ROOT_PASSWORD),
         (r"Time zone \[UTC\]: $", "Europe/Berlin"),
         (r"Locale \[en_US.UTF-8\]: $", "en_US.UTF-8"),
-        (rf"Erase everything on {answers.disk}\? \[y/N\] $", "y"),
     ]
+    if not answers.keymap_first:
+        lines.append(keymap)
+    lines.append((rf"Erase everything on {answers.disk}\? \[y/N\] $", "y"))
     return lines
 
 

@@ -24,8 +24,9 @@ from . import install, rig
 
 REASON = rig.missing()
 # Phase 1 as it was before encryption, to compare an install that declines it
-# with.
+# with, and the answers it asked for: the keymap last.
 BEFORE = "78a179a"
+BEFORE_ANSWERS = install.Answers(keymap_first=False)
 
 
 @unittest.skipIf(REASON, f"no VM: {REASON}")
@@ -57,7 +58,7 @@ class Before(Booting):
 
     def test_boots_to_a_login_with_nothing_typed(self) -> None:
         machine = self.machine(
-            "before", install.Answers(), [rig.Disk("system", 20)], BEFORE
+            "before", BEFORE_ANSWERS, [rig.Disk("system", 20)], BEFORE
         )
         machine.boot()
         machine.login("root", install.ROOT_PASSWORD, timeout=180)
@@ -370,7 +371,11 @@ class Tpm(Enrolling):
         machine.login("root")
         root = "/mnt/@"
         machine.sh(
-            f"mkfs.btrfs -q -f -U {uuid} /dev/vda2 && mount /dev/vda2 /mnt && "
+            # Wiped first: mkfs.btrfs leaves LUKS's signature beside its
+            # own, and a device with both is mounted as neither, nor linked
+            # by its UUID, which is what this test tries.
+            f"wipefs -aq /dev/vda2 && mkfs.btrfs -q -f -U {uuid} /dev/vda2 && "
+            "mount /dev/vda2 /mnt && "
             f"btrfs subvolume create {root} && "
             f"mkdir -p {root}/usr/bin {root}/usr/lib {root}/etc {root}/dev "
             f"{root}/proc {root}/sys {root}/run && "
@@ -442,7 +447,7 @@ class Declined(Booting):
         declined = self.machine(
             "declined", install.Answers(encrypt=False), disks
         )
-        before = self.machine("before", install.Answers(), disks, BEFORE)
+        before = self.machine("before", BEFORE_ANSWERS, disks, BEFORE)
         self.maxDiff = None
         self.assertEqual(self.settings(declined), self.settings(before))
 
@@ -512,7 +517,7 @@ class Converted(Enrolling):
 
     def test_the_procedure_encrypts_it_in_place(self) -> None:
         machine = self.machine(
-            "before", install.Answers(), [rig.Disk("system", 20)], BEFORE
+            "before", BEFORE_ANSWERS, [rig.Disk("system", 20)], BEFORE
         )
         machine.boot()
         machine.login("root", install.ROOT_PASSWORD, timeout=240)
