@@ -11,7 +11,8 @@ reaches another test, and coverage measures each process by itself.
 
 Prints a line per module, in the order given, under a heading for each
 repo's (the folder they are in: dotfiles, installer, testing), with the
-output of every test that failed; exits 1 if any did. `-k` selects tests as
+output of every test that failed and why tests were skipped, as a skip
+in CI is a check that did not run; exits 1 if any failed. `-k` selects tests as
 unittest's does, and `--heading` adds to each heading.
 """
 
@@ -26,6 +27,7 @@ import subprocess
 import sys
 import time
 import unittest
+from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -66,10 +68,11 @@ def collect(name: str, patterns: list[str]) -> list[str]:
 
 
 def run(test: str) -> tuple[str, int, str, float]:
-    """One test in a process of its own: its id, exit code, output, time."""
+    """One test in a process of its own: its id, exit code, output, time;
+    verbose, as only then does unittest say why a test was skipped."""
     start = time.monotonic()
     result = subprocess.run(
-        [sys.executable, "-m", "unittest", test],
+        [sys.executable, "-m", "unittest", "-v", test],
         cwd=TESTING,
         stdin=subprocess.DEVNULL,
         capture_output=True,
@@ -78,6 +81,17 @@ def run(test: str) -> tuple[str, int, str, float]:
     )
     output = result.stdout + result.stderr
     return test, result.returncode, output, time.monotonic() - start
+
+
+def skips(output: str) -> list[str]:
+    """Why unittest's verbose output says tests were skipped, one reason
+    per test (or subtest)."""
+    return [
+        match.group(2)
+        for match in re.finditer(
+            r"\.\.\. skipped (['\"])(.*)\1$", output, re.MULTILINE
+        )
+    ]
 
 
 def durations() -> dict[str, float]:
@@ -151,6 +165,13 @@ def main(argv: list[str] | None = None) -> int:
                     print(indented(results[test][1]))
             elif skipped:
                 print(f"  skip  {path}: skipped={skipped} of {len(found)}")
+                reasons = Counter(
+                    reason
+                    for test in found
+                    for reason in skips(results[test][1])
+                )
+                for reason, count in sorted(reasons.items()):
+                    print(f"        {reason} ({count})")
             else:
                 print(f"  ok    {path}: {len(found)} tests")
             sys.stdout.flush()

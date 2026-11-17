@@ -1,0 +1,153 @@
+# Checks every push and pull request to Jupiter-testing. Every Jupiter
+# repo's checks run on this repo's tools: lint.sh, test.sh and the harness
+# live here, so a change to them can break the dotfiles' or the installer's
+# checks as surely as their own code can. This repo is checked as pushed,
+# the other two from the same branch where they have it, else from main.
+# Jupiter-dotfiles and Jupiter-installer each check only themselves on a
+# push; this is where all three meet. Daily on main as well, as Arch's
+# packages move between pushes.
+#
+#   arch   in an Arch container, as the desktop: every repo's formatting
+#          and linters, then every suite (./check.sh check all), the
+#          installer's on Arch and on NixOS, its NixOS modules evaluated by
+#          Nix against the flake's own nixpkgs, and the tests that need the
+#          desktop's daemons (gnome-keyring, dbus) or a PAM sandbox, which
+#          the other repos' CI skips. Privileged: the suites' stand-ins use
+#          unshare. Each skip is listed with its reason.
+#   nixos  on the runner's Nix, scripts/nixos-check.sh: the installer's
+#          flake evaluated and built, and the dotfiles' Hyprland config and
+#          QML suites on NixOS's Hyprland and Quickshell.
+name: Check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "37 4 * * *"
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The branch the repos are laid out by (a pull request's own, not its merge).
+  BRANCH: ${{ github.head_ref || github.ref_name }}
+
+# bash -eo pipefail: a failing command fails its step, in a pipe too.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  arch:
+    name: Arch (every repo's lint and suites)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+    steps:
+      - name: Install tools
+        # What lint.sh and test.sh ask for, for every repo; mypy's stubs;
+        # the VM rig's tools, which its own tests check for (vm/ itself
+        # needs KVM and the ISO: scripts/vm.sh); and what an installed
+        # desktop has that the suites use: neovim's Lua for
+        # lua-language-server, the GNOME schemas, Kvantum's KvMojave, cmp,
+        # xdg-user-dirs, the keyring's daemon and the session bus.
+        # [multilib] for the package-list test; nix for the installer's
+        # NixOS side (nixfmt, statix and deadnix, which Arch has no package
+        # of, come from it); rust builds wallust.
+        run: |
+          printf '[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
+          pacman -Syu --noconfirm --needed git sudo rust \
+            ruff mypy python-types-python-dateutil python-pygobject-stubs \
+            shellcheck shfmt stylua lua lua-language-server zsh nix actionlint \
+            qt6-declarative hyprland quickshell uwsm \
+            python-coverage python-dateutil python-gobject python-pyxdg \
+            util-linux file xdg-user-dirs qemu-system-x86 swtpm edk2-ovmf libarchive \
+            neovim gsettings-desktop-schemas kvantum diffutils \
+            gnome-keyring dbus glib2
+          # To compare with the desktop when a check passes there only.
+          pacman -Q quickshell qt6-declarative hyprland lua-language-server python nix
+      - name: Add an unprivileged user
+        # Root reads every file, which the permission checks rely on not
+        # doing, and the installer's phases refuse it. Nix runs as that user
+        # too, single-user, its store theirs.
+        run: |
+          useradd -m ci
+          install -d -o ci /nix
+          chown -R ci: /nix
+          # A session's runtime folder, which Hyprland's config check insists on.
+          install -d -m 700 -o ci "/run/user/$(id -u ci)"
+      - id: wallust
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/ci/.cargo
+          key: cargo-wallust-3.5.1
+      - name: Install wallust
+        # Built by cargo, as on the desktop (apply.sh looks in ~/.cargo/bin).
+        if: steps.wallust.outputs.cache-hit != 'true'
+        run: |
+          chown -R ci: /home/ci
+          sudo -u ci -H cargo install --locked wallust --version 3.5.1
+      # Saved straight away, so a failing check doesn't cost the next run the build.
+      - if: steps.wallust.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /home/ci/.cargo
+          key: cargo-wallust-3.5.1
+      - uses: actions/checkout@v4
+        with:
+          path: checkout
+      - name: Lay out the repos
+        run: |
+          chown -R ci: "$GITHUB_WORKSPACE"
+          sudo -u ci -H env GIT_TERMINAL_PROMPT=0 bash checkout/scripts/ci-repos.sh checkout "$BRANCH"
+      - name: Find the flake's nixpkgs
+        id: nixpkgs
+        # The installer's NixOS suites evaluate its modules against the
+        # nixpkgs its flake.lock pins.
+        run: |
+          nixpkgs=$(sudo -u ci -H env NIX_CONFIG="$NIX" nix eval --raw --impure --expr \
+            "(builtins.getFlake \"path:$GITHUB_WORKSPACE/Jupiter-installer\").inputs.nixpkgs.outPath")
+          echo "JUPITER_NIXPKGS=$nixpkgs" >> "$GITHUB_ENV"
+          # The Nix linters (nixfmt, statix, deadnix), from the same nixpkgs.
+          sudo -u ci -H env NIX_CONFIG="$NIX" nix build --impure --out-link /home/ci/tools/nix \
+            --expr "with import $nixpkgs { }; buildEnv { name = \"nix-linters\"; paths = [ nixfmt statix deadnix ]; }"
+        env:
+          # The job's token for GitHub's API, as install-nix-action gives the
+          # nixos job: unauthenticated, fetching the flake's inputs runs into
+          # its rate limit.
+          NIX: |
+            experimental-features = nix-command flakes
+            build-users-group =
+            sandbox = false
+            access-tokens = github.com=${{ github.token }}
+      - name: Every repo, linted and tested
+        if: steps.nixpkgs.outcome == 'success'
+        run: |
+          cd Jupiter-testing
+          sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nix/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
+            JUPITER_NIXPKGS="$JUPITER_NIXPKGS" NIX_CONFIG="$NIX" ./check.sh check all
+        env:
+          # As above.
+          NIX: |
+            experimental-features = nix-command flakes
+            build-users-group =
+            sandbox = false
+            access-tokens = github.com=${{ github.token }}
+
+  nixos:
+    name: NixOS (the flake, its Hyprland and Quickshell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: checkout
+      - uses: cachix/install-nix-action@v31
+      - name: Lay out the repos
+        run: GIT_TERMINAL_PROMPT=0 bash checkout/scripts/ci-repos.sh checkout "$BRANCH"
+      - name: The system, its Hyprland and its Quickshell
+        # scripts/nixos-check.sh says what it checks: with no part named,
+        # both repos'.
+        run: bash Jupiter-testing/scripts/nixos-check.sh

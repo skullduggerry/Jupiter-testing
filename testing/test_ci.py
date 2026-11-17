@@ -156,7 +156,8 @@ class Layout(unittest.TestCase):
 
 class Workflows(unittest.TestCase):
     """Each tested repo's check.yml lays the repos out and checks that repo
-    alone, on Arch and on NixOS; this repo's Actions only mirror it."""
+    alone, on Arch and on NixOS; this repo's checks all three with its
+    tools as pushed."""
 
     WORKFLOWS = Path(".github/workflows")
 
@@ -202,11 +203,25 @@ class Workflows(unittest.TestCase):
 
         self.assertIn("JUPITER_NIXPKGS", self.workflow(INSTALLER))
 
-    def test_this_repo_only_mirrors(self) -> None:
+    def test_this_repo_checks_every_repo(self) -> None:
+        # Its tools check all three: a change to them is checked on all
+        # three, laid out from the pushed branch, Arch's and NixOS's checks.
+        text = self.workflow(TESTING)
+        self.assertIn("bash checkout/scripts/ci-repos.sh checkout", text)
+        self.assertIn("./check.sh check all\n", text)
+        self.assertIn("JUPITER_NIXPKGS", text)
+        self.assertIn("scripts/nixos-check.sh\n", text)
         self.assertEqual(
             sorted(p.name for p in (TESTING / self.WORKFLOWS).iterdir()),
-            ["mirror-codeberg.yml"],
+            ["check.yml", "mirror-codeberg.yml"],
         )
+
+    def test_this_repo_has_what_the_skipped_tests_need(self) -> None:
+        # What the other repos' CI skips the tests of, by what they look for.
+        text = self.workflow(TESTING)
+        for package in ("gnome-keyring", "dbus", "glib2"):
+            with self.subTest(package=package):
+                self.assertIn(f" {package}", text)
 
 
 # check.sh's stand-in: records its arguments; with --fix it changes the

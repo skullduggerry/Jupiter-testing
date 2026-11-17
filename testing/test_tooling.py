@@ -512,6 +512,27 @@ class Runner(unittest.TestCase):
         self.assertIn("Check.test_the_arguments_as_they_are", output)
         self.assertIn("AssertionError", output)
 
+    def test_why_tests_were_skipped(self) -> None:
+        # The real keyring test, on a PATH without the daemon it needs.
+        nothing = temporary(self)
+        code, output = self.runner(
+            "-k",
+            "GnomeKeyring",
+            "installer/security/test_keyring.py",
+            PATH=str(nothing),
+            XDG_CACHE_HOME=str(nothing / "cache"),
+        )
+        self.assertEqual(
+            (code, output),
+            (
+                0,
+                "\n== tests: installer\n"
+                "  skip  installer/security/test_keyring.py: skipped=1 of 1\n"
+                "        needs gnome-keyring-daemon, dbus-run-session, "
+                "gdbus (1)\n",
+            ),
+        )
+
     def test_a_module_that_does_not_load(self) -> None:
         code, output = self.runner("testing/no_such_module.py")
         self.assertNotEqual(code, 0)
