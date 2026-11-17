@@ -212,8 +212,8 @@ class MirrorTest(unittest.TestCase):
             fileobj=io.BytesIO(self.get("/installer.tar"))
         ) as tar:
             names = tar.getnames()
-        self.assertIn("Jupiter-installer/jupiter/phase1.py", names)
-        self.assertIn("Jupiter-installer/packages/core.txt", names)
+        self.assertIn("Jupiter-installer/jupiter/arch/phase1.py", names)
+        self.assertIn("Jupiter-installer/arch/packages/core.txt", names)
         self.assertFalse(
             [n for n in names if "/.git" in n or "__pycache__" in n]
         )

@@ -447,7 +447,7 @@ class Runner(unittest.TestCase):
 
     def test_a_failure_with_its_output(self) -> None:
         broken = temporary(self)
-        for name in ("jupiter", "packages", "bootstrap.sh", "check.sh"):
+        for name in ("jupiter", "arch", "bootstrap.sh", "check.sh"):
             source = INSTALLER / name
             if source.is_dir():
                 shutil.copytree(source, broken / name)

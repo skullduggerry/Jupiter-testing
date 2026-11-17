@@ -13,7 +13,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from jupiter import phase4
+from jupiter.arch import phase4
 
 from harness import SECRET, TESTING, pam, temporary
 

@@ -21,7 +21,8 @@ from pathlib import Path
 from unittest import mock
 
 from jupiter import __main__ as main
-from jupiter import config, phase1, phase3
+from jupiter import config, questions
+from jupiter.arch import phase1, phase3
 
 import installer  # noqa: F401  # puts the installer on sys.path
 from harness import INSTALLER
@@ -38,7 +39,7 @@ def entries(*names: str) -> list[pwd.struct_passwd]:
 
 
 class UserNames(unittest.TestCase):
-    """phase1._is_new_user: a new account, as useradd and Arch name them."""
+    """questions.is_new_user: a new account, as useradd and Arch name them."""
 
     def setUp(self) -> None:
         self.enterContext(
@@ -63,12 +64,12 @@ class UserNames(unittest.TestCase):
             "jäne",
         ]:
             with self.subTest(name=name):
-                self.assertFalse(phase1._is_new_user(name))
+                self.assertFalse(questions.is_new_user(name))
 
     def test_names_that_are_new(self) -> None:
         for name in ("jane", "_jane", "j-a_n3", "a" * 32):
             with self.subTest(name=name):
-                self.assertTrue(phase1._is_new_user(name))
+                self.assertTrue(questions.is_new_user(name))
 
 
 class Passwords(Installing):
@@ -99,7 +100,7 @@ class Passwords(Installing):
             mock.patch("builtins.input", side_effect=answers),
             mock.patch("getpass.getpass", side_effect=list(self.PASSWORDS)),
             mock.patch.object(
-                phase1, "_listed", return_value=lambda answer: True
+                questions, "listed", return_value=lambda answer: True
             ),
         ):
             phase1.main()
@@ -223,7 +224,7 @@ class Sources(unittest.TestCase):
                 self.assertGreater(parsed.prefixlen, 0)
 
     def test_sudo_takes_a_finger_before_the_password(self) -> None:
-        from jupiter import phase4
+        from jupiter.arch import phase4
 
         self.assertEqual(
             phase4.FINGERPRINT.split(),

@@ -30,12 +30,13 @@ INSTALLED_ONLY = {
     "bootstrap.sh",
     "check.sh",
     "pyproject.toml",
-    "jupiter/phase3.py",
-    "jupiter/phase4.py",
+    "jupiter/arch/phase3.py",
+    "jupiter/arch/phase4.py",
+    "jupiter/dotfiles.py",
     "jupiter/tpm.py",
     "jupiter/keyring.py",
-    "packages/pacman.txt",
-    "packages/aur.txt",
+    "arch/packages/pacman.txt",
+    "arch/packages/aur.txt",
 }
 
 

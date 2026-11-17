@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from jupiter import phase3
+from jupiter.arch import phase3
 
 OPTIONS = """\
 [options]

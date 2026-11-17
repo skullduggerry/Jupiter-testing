@@ -21,7 +21,7 @@ from unittest import mock
 from jupiter import __main__ as entry
 from jupiter.common import INSTALLER_DIR
 from jupiter.distro import System as Distro
-from jupiter.nixos import common, dotfiles, system
+from jupiter.nixos import common, phase4, system
 
 from harness import executable
 from installer import NIXOS
@@ -164,10 +164,10 @@ class Dotfiles(World):
     def test_the_login_screen_through_roots_copy(self) -> None:
         installer = executable(self.tmp / "root/install-greeter.sh", "")
         with (
-            mock.patch.object(dotfiles, "INSTALL_GREETER", installer),
+            mock.patch.object(phase4, "INSTALL_GREETER", installer),
             mock.patch.dict(os.environ, self.env),
         ):
-            dotfiles._install_greeter(self.repo)
+            phase4._install_greeter(self.repo)
         self.assertEqual(
             self.recorded(), [f"sudo {installer} --from {self.repo}"]
         )

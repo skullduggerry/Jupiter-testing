@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from jupiter import phase4
+from jupiter.arch import phase4
 
 SUDO = (
     "#%PAM-1.0\n"

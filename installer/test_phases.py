@@ -16,8 +16,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jupiter import phase1, phase2, phase3
-from jupiter.common import INSTALLER_DIR, packages
+from jupiter import disks
+from jupiter.arch import phase1, phase2, phase3
+from jupiter.arch.common import packages
+from jupiter.common import INSTALLER_DIR
 
 RECORD = """#!/bin/sh
 echo "${0##*/} $*" >> "$CALLS"
@@ -61,7 +63,7 @@ Include = /etc/pacman.d/mirrorlist
 # python3 -m jupiter, reading the pacman.conf at $PACMAN_CONF.
 JUPITER = """import os, runpy, sys
 from pathlib import Path
-from jupiter import phase3
+from jupiter.arch import phase3
 phase3.PACMAN_CONF = Path(os.environ["PACMAN_CONF"])
 sys.argv[0] = "jupiter"
 runpy.run_module("jupiter", run_name="__main__", alter_sys=True)
@@ -444,7 +446,7 @@ class Phases(unittest.TestCase):
 
 
 class Lists(unittest.TestCase):
-    """packages/: each package in one list, and the AUR's in aur.txt only."""
+    """arch/packages/: each package in one list, and the AUR's in aur.txt only."""
 
     def test_each_package_once(self) -> None:
         names = [
@@ -508,7 +510,7 @@ class Disks(unittest.TestCase):
         for device in devices:
             device.setdefault("type", "disk")
             device.setdefault("mountpoints", [None])
-        [target] = phase1.targets(devices)
+        [target] = disks.targets(devices)
         self.assertEqual(target["name"], "/dev/nvme0n1")
 
 

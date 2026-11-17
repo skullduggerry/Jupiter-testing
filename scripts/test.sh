@@ -119,8 +119,9 @@ if ((floor)); then
         if [[ $target == dotfiles ]]; then
             spec=('*.py' '*.sh')
         else
-            # Arch's phases and NixOS's (jupiter/nixos/, nixos/*.py).
-            spec=('jupiter/*.py' 'nixos/*.py' ':!jupiter/__init__.py' ':!jupiter/nixos/__init__.py')
+            # Both systems' phases and what they share (jupiter/), and
+            # NixOS's build helpers (nixos/*.py).
+            spec=('jupiter/*.py' 'nixos/*.py' ':!jupiter/__init__.py' ':!jupiter/arch/__init__.py' ':!jupiter/nixos/__init__.py')
         fi
         mapfile -t helpers < <(git -C "$repo" ls-files --cached --others --exclude-standard -- "${spec[@]}" |
             while read -r f; do [[ -f $repo/$f ]] && printf '%s\n' "$f"; done)

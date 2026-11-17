@@ -12,7 +12,7 @@ import json
 import os
 import unittest
 
-from jupiter import phase1
+from jupiter import disks
 
 from installer.test_phase1 import PASSPHRASE, Declining, Encrypting
 
@@ -120,7 +120,7 @@ class DisksNotChosen(Encrypting):
             self.assertNotIn(disk, offered)
 
     def test_data_goes_in_a_folder_of_its_own(self) -> None:
-        valid = phase1._mount_point({"/taken"})
+        valid = disks.mount_point({"/taken"})
         for path in ("/data", "/mnt/data", "/srv/media", "/data2"):
             with self.subTest(path=path):
                 self.assertTrue(valid(path))

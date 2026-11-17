@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from jupiter import phase1 as disks
+from jupiter import disks
 from jupiter.nixos import phase1
 
 from harness.disks import KBD_MODEL_MAP, LSBLK
@@ -106,7 +106,7 @@ class Installing(unittest.TestCase):
         (self.repo / "flake.nix").write_text("{ }\n")
         (self.repo / "jupiter/__main__.py").write_text("")
         (self.repo / "jupiter/__pycache__").mkdir()
-        # The disks' steps are Arch's phase 1's, by its own constants.
+        # The disks' steps are the shared disks.py's, by its own constants.
         for name, value in {
             "MNT": self.mnt,
             "EFI": tmp / "efi",

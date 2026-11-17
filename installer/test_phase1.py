@@ -16,7 +16,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from jupiter import phase1, secureboot
+from jupiter import disks, questions, secureboot
+from jupiter.arch import phase1
 from jupiter.common import INSTALLER_DIR
 
 from harness.disks import GIB, KBD_MODEL_MAP, LSBLK
@@ -92,16 +93,20 @@ class Installing(unittest.TestCase):
         )
         (tmp / "kbd-model-map").write_text(KBD_MODEL_MAP)
         (tmp / "efi").mkdir()
+        # The disks' steps are the shared disks.py's, by its own constants.
         for name, value in {
-            "LIVE": True,
             "MNT": self.mnt,
             "EFI": tmp / "efi",
+            "ERASED": tmp / "jupiter-erased",
+        }.items():
+            self.enterContext(mock.patch.object(disks, name, value))
+        for name, setting in {
+            "LIVE": True,
             "LOCALE_GEN": tmp / "locale.gen",
             "KBD_MODEL_MAP": tmp / "kbd-model-map",
-            "ERASED": tmp / "jupiter-erased",
             "IWD": tmp / "iwd",
         }.items():
-            self.enterContext(mock.patch.object(phase1, name, value))
+            self.enterContext(mock.patch.object(phase1, name, setting))
         # A machine with only an NVIDIA card, whatever this one has.
         drivers = {"amd-ucode", *phase1.NVIDIA}
         self.enterContext(
@@ -362,7 +367,7 @@ class PhaseOne(Declining):
     def test_leaves_itself_in_the_new_home(self) -> None:
         calls = self.install()
         copy = self.mnt / "home" / USER / INSTALLER_DIR.name
-        self.assertTrue((copy / "jupiter/phase1.py").exists())
+        self.assertTrue((copy / "jupiter/arch/phase1.py").exists())
         self.assertEqual(list(copy.rglob("__pycache__")), [])
         chown = [
             "arch-chroot",
@@ -491,7 +496,7 @@ class EncryptedInstall(Encrypting):
             and "/dev/vdx" in call
             and "--json" not in call
         )
-        self.assertEqual(layout, f"label: gpt\ntype={phase1.DATA_TYPE}\n")
+        self.assertEqual(layout, f"label: gpt\ntype={disks.DATA_TYPE}\n")
         [btrfs] = [
             call
             for call in run
@@ -595,13 +600,13 @@ class EncryptedInstall(Encrypting):
 class Keymap(Encrypting):
     def test_is_asked_and_loaded_before_any_password_is_typed(self) -> None:
         loaded_by_then = []
-        new_password = phase1._new_password
+        new_password = questions.new_password
 
         def asked(*args: str) -> str:
             loaded_by_then.append("loadkeys" in self.calls.read_text())
             return new_password(*args)
 
-        with mock.patch.object(phase1, "_new_password", side_effect=asked):
+        with mock.patch.object(questions, "new_password", side_effect=asked):
             self.install()
         self.assertEqual(self.questions[0], "Keymap [us]: ")
         self.assertEqual(
@@ -649,10 +654,10 @@ class Rerun(Encrypting):
 
     def test_remembers_the_data_disks_it_erases(self) -> None:
         self.install()
-        self.assertEqual(phase1.ERASED.read_text(), "/dev/vdx\n")
+        self.assertEqual(disks.ERASED.read_text(), "/dev/vdx\n")
 
     def test_offers_again_a_data_disk_it_had_begun(self) -> None:
-        phase1.ERASED.write_text("/dev/vdw\n")  # as if it had made it
+        disks.ERASED.write_text("/dev/vdw\n")  # as if it had made it
         self.DATA_ANSWERS = (*self.DATA_ANSWERS, "")  # no to it this time
         self.install()
         self.assertIn(

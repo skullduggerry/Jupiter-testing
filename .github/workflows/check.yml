@@ -51,7 +51,7 @@ jobs:
     steps:
       - name: Install tools
         # What Jupiter-testing's lint.sh and test.sh ask for, what
-        # Jupiter-installer's packages/pacman.txt lists for the checks (mypy's
+        # Jupiter-installer's arch/packages/pacman.txt lists for the checks (mypy's
         # stubs, the VM's firmware), and what an installed desktop has that the
         # suites use: neovim's Lua for lua-language-server, the GNOME schemas,
         # Kvantum's KvMojave, cmp. [multilib] for the package-list test; nix
