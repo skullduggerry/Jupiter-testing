@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from jupiter import disks
+from jupiter import disks, questions
 from jupiter.nixos import phase1
 
 from harness.disks import KBD_MODEL_MAP, LSBLK
@@ -303,16 +303,20 @@ class Encrypted(Encrypting):
         self.firmware(setup=True)
         run = [call[:-1] for call in self.install()]
         keys = self.mnt / "var/lib/sbctl"
+        install = next(call for call in run if call[0] == "nixos-install")
+        # sbctl from the copy's locked nixpkgs, without the Landlock rules
+        # that would keep it from writing under /mnt.
+        flake = install[-1].partition("#")[0]
         create = [
-            *phase1.NIX, "shell", "nixpkgs#sbctl", "--command", "sbctl",
-            "create-keys", "--database-path", str(keys / "GUID"),
+            *phase1.NIX, "shell", "--inputs-from", flake, "nixpkgs#sbctl",
+            "--command", "sbctl", "--disable-landlock", "create-keys",
+            "--database-path", str(keys / "GUID"),
             "--export", str(keys / "keys"),
         ]  # fmt: skip
         enroll = [
             "nixos-enter", "--root", str(self.mnt), "--",
-            "sbctl", "enroll-keys", "--microsoft",
+            "sbctl", "enroll-keys", "--microsoft", "--firmware-builtin",
         ]  # fmt: skip
-        install = next(call for call in run if call[0] == "nixos-install")
         self.assertLess(run.index(create), run.index(install))
         self.assertGreater(run.index(enroll), run.index(install))
         self.assertEqual(keys.stat().st_mode & 0o777, 0o700)
@@ -400,12 +404,12 @@ class Found(unittest.TestCase):
             ("Mars/Olympus", None),
         ):
             with self.subTest(zone=zone):
-                self.assertEqual(phase1.country(zone, ZONE_TAB), country)
+                self.assertEqual(questions.country(zone, ZONE_TAB), country)
 
     def test_the_x_layout_of_a_keymap(self) -> None:
-        self.assertEqual(phase1.keyboard("us", KBD_MODEL_MAP), {})
+        self.assertEqual(questions.keyboard("us", KBD_MODEL_MAP), {})
         self.assertEqual(
-            phase1.keyboard("de-latin1", KBD_MODEL_MAP)["layout"], "de"
+            questions.keyboard("de-latin1", KBD_MODEL_MAP)["layout"], "de"
         )
 
     def test_the_gpus_drivers(self) -> None:

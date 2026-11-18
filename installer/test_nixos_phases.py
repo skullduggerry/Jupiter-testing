@@ -100,12 +100,20 @@ class Dotfiles(World):
         self.assertEqual(
             (self.home / ".zshrc").readlink(), self.repo / ".config/.zshrc"
         )
+        # Root's copy of the greeter's installer is the system's: missing
+        # (as here, before phase 2), it is named, not run from the clone; on
+        # a machine Jupiter is installed on it is there, and runs.
+        greeter = phase4.INSTALL_GREETER
+        ran = (
+            [f"sudo {greeter} --from {self.repo}"] if greeter.exists() else []
+        )
         self.assertEqual(
             calls,
             [
                 "systemctl --user mask dunst.service mako.service "
                 "swaync.service",
                 "apply.sh",
+                *ran,
             ],
         )
         push = subprocess.run(
@@ -114,9 +122,8 @@ class Dotfiles(World):
             capture_output=True, text=True, check=True,
         ).stdout.strip()  # fmt: skip
         self.assertEqual(push, PUSH_URL)
-        # Root's copy of the greeter's installer is the system's: missing
-        # here, it is named, not run from the clone.
-        self.assertIn("install-greeter.sh is missing", self.output)
+        if not ran:
+            self.assertIn("install-greeter.sh is missing", self.output)
         self.assertIn("The disk is not encrypted", self.output)
 
     def test_run_again_backs_up_what_was_in_the_way(self) -> None:

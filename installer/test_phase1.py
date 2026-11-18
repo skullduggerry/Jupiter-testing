@@ -74,6 +74,16 @@ COMMANDS = [
 USER = "jupitertest"
 
 
+def btrfs_formatted(run: list[list[str]]) -> list[str]:
+    """The devices mkfs.btrfs formatted, each with a UUID phase 1 chose."""
+    return [
+        call[-1]
+        for call in run
+        if call[:2] == ["mkfs.btrfs", "--force"]
+        and any(arg.startswith("--uuid=") for arg in call)
+    ]
+
+
 class Installing(unittest.TestCase):
     """A live ISO of stand-ins, a temporary /mnt and an NVIDIA machine."""
 
@@ -258,9 +268,9 @@ class PhaseOne(Declining):
             if call[0] == "sfdisk" and "--json" not in call
         )
         self.assertIn("size=1GiB, type=uefi", layout)
+        self.assertIn("/dev/vdz2", btrfs_formatted(run))
         for command in (
             ["mkfs.fat", "-F", "32", "/dev/vdz1"],
-            ["mkfs.btrfs", "--force", "/dev/vdz2"],
             [
                 "mount",
                 "--mkdir",
@@ -297,6 +307,15 @@ class PhaseOne(Declining):
                 "systemd-timesyncd",
             ],
             ["arch-chroot", "-S", mnt, "bootctl", "install"],
+            # Unencrypted too, systemd-boot updates with systemd.
+            [
+                "arch-chroot",
+                "-S",
+                mnt,
+                "systemctl",
+                "enable",
+                "systemd-boot-update.service",
+            ],
         ):
             self.assertIn(command, run)
         pacstrap = next(call for call in run if call[0] == "pacstrap")
@@ -425,7 +444,6 @@ class EncryptedInstall(Encrypting):
         for command in (
             format_,
             opened,
-            ["mkfs.btrfs", "--force", "/dev/mapper/root"],
             [
                 "mount",
                 "--mkdir",
@@ -438,7 +456,8 @@ class EncryptedInstall(Encrypting):
         ):
             self.assertIn(command, run)
         self.assertLess(run.index(format_), run.index(opened))
-        self.assertNotIn(["mkfs.btrfs", "--force", "/dev/vdz2"], run)
+        self.assertIn("/dev/mapper/root", btrfs_formatted(run))
+        self.assertNotIn("/dev/vdz2", btrfs_formatted(run))
 
     def test_opens_the_root_in_the_initramfs_with_trim(self) -> None:
         calls = self.install()
@@ -694,8 +713,10 @@ class Wifi(Encrypting):
 
     def test_carries_a_wpa_network_over_root_only(self) -> None:
         phase1.IWD.mkdir()
+        # As iwd writes it (iwd.network(5)): the backslash escaped, a
+        # leading space as \s, the escapes a NetworkManager keyfile reads.
         (phase1.IWD / "Home Net.psk").write_text(
-            "[Security]\nPreSharedKey=abcd\nPassphrase=pa\\ss word\n"
+            "[Security]\nPreSharedKey=abcd\nPassphrase=\\spa\\\\ss word\n"
         )
         (phase1.IWD / "=caf\u00e9.psk").write_text(
             "[Security]\nPassphrase=x\n"
@@ -714,7 +735,7 @@ class Wifi(Encrypting):
         self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
         text = saved.read_text()
         for line in ("id=Home Net", "type=wifi", "ssid=Home Net",
-                     "key-mgmt=wpa-psk", "psk=pa\\\\ss word"):  # fmt: skip
+                     "key-mgmt=wpa-psk", "psk=\\spa\\\\ss word"):  # fmt: skip
             self.assertIn(f"\n{line}\n", "\n" + text)
 
     def test_none_without_iwd(self) -> None:
@@ -760,11 +781,11 @@ class SignedBoot(Encrypting):
         boot = "/usr/lib/systemd/boot/efi/systemd-bootx64.efi"
         order = [
             ["sbctl", "create-keys"],
-            ["sbctl", "enroll-keys", "--microsoft"],
+            ["sbctl", "enroll-keys", "--microsoft", "--firmware-builtin"],
             ["sbctl", "sign", "--save", "--output", f"{boot}.signed", boot],
             ["bootctl", "install"],
-            ["mkinitcpio", "--allpresets"],
             ["systemctl", "enable", "systemd-boot-update.service"],
+            ["mkinitcpio", "--allpresets"],
         ]
         indexes = [chroot.index(command) for command in order]
         self.assertEqual(indexes, sorted(indexes), chroot)
@@ -804,6 +825,29 @@ class SignedBoot(Encrypting):
         self.assertIn(["mkinitcpio", "--allpresets"], chroot)
         warnings = [c.args[0] for c in self.printed.call_args_list if c.args]
         self.assertIn("phase 4 says what is left", "".join(map(str, warnings)))
+
+    def test_enrols_microsofts_alone_where_the_defaults_are_refused(
+        self,
+    ) -> None:
+        # sbctl refuses firmware defaults it cannot trust (non-volatile).
+        self.firmware(setup=True)
+        self.calls.write_text("")
+        stand_in = Path(os.environ["PATH"]) / "arch-chroot"
+        stand_in.write_text(
+            stand_in.read_text()
+            + "if '--firmware-builtin' in args: sys.exit(1)\n"
+        )
+        chroot = self.chroot(self.install())
+        enrolled = [call for call in chroot if "enroll-keys" in call]
+        self.assertEqual(
+            enrolled,
+            [
+                ["sbctl", "enroll-keys", "--microsoft", "--firmware-builtin"],
+                ["sbctl", "enroll-keys", "--microsoft"],
+            ],
+        )
+        warnings = [c.args[0] for c in self.printed.call_args_list if c.args]
+        self.assertNotIn("Could not enrol", "".join(map(str, warnings)))
 
 
 if __name__ == "__main__":

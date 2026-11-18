@@ -2,6 +2,7 @@
 (if none is) and sudo's and polkit's PAM stacks take one first, keeping the
 old file; polkit's from its package's (/usr/lib/pam.d) where /etc has none.
 
+The enrolment is the shared jupiter/fingerprint.py, the stacks Arch's phase 4.
 fprintd-list, fprintd-enroll and sudo are stand-ins on a PATH of their own,
 and the PAM files are temporary ones, so nothing on this machine changes.
 """
@@ -15,6 +16,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from jupiter import fingerprint
 from jupiter.arch import phase4
 
 SUDO = (
@@ -174,7 +176,7 @@ class Fingerprint(unittest.TestCase):
 
     def test_a_failed_enrolment_is_named(self) -> None:
         self.env["ENROLLED"] = "1"
-        with mock.patch.object(phase4, "warn") as warned:
+        with mock.patch.object(fingerprint, "warn") as warned:
             self.set_up(NO_FINGER)
         warned.assert_called_once()
         self.assertIn("pam_fprintd", self.pam.read_text())

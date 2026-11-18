@@ -177,6 +177,8 @@ class Binding(Machine):
                 "--wipe-slot=tpm2",
                 "--tpm2-device=auto",
                 "--tpm2-pcrs=7+15:sha256=" + "0" * 64,
+                "--tpm2-pcrlock=",
+                "--tpm2-public-key=",
                 "/dev/vda2",
             ],
             calls,
@@ -212,7 +214,7 @@ class Binding(Machine):
         )
         self.assertIn("Reboot and run bootstrap.sh 4 again", self.said())
         self.measured.write_text("")
-        self.assertIsNone(core._volume_key_id("root", LUKS_UUID))
+        self.assertIsNone(core.volume_key_id("root", LUKS_UUID))
 
 
 class Missing(Machine):

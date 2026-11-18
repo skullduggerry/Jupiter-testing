@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jupiter import disks
+from jupiter import disks, questions
 from jupiter.arch import phase1, phase2, phase3
 from jupiter.arch.common import packages
 from jupiter.common import INSTALLER_DIR
@@ -69,9 +69,8 @@ sys.argv[0] = "jupiter"
 runpy.run_module("jupiter", run_name="__main__", alter_sys=True)
 """
 USER_UNITS = "hyprpolkitagent gcr-ssh-agent.socket"
-# The folders a new home gets, written by sh -c from stdin.
-USER_DIRS = "sudo sh -c cat > /etc/xdg/user-dirs.defaults"
-MASK = f"sudo systemctl mask {' '.join(phase2.TPM_UNITS)}"
+# The folders a new home gets, installed from stdin.
+USER_DIRS = "sudo install -m 0644 /dev/stdin /etc/xdg/user-dirs.defaults"
 # Where ufw is installed, phase 3 lets KDE Connect in from the local networks.
 KDECONNECT = [
     f"sudo ufw allow from {network} to any app KDEConnect"
@@ -188,16 +187,19 @@ class Phases(unittest.TestCase):
                 f"sudo systemctl enable {services}",
                 f"sudo systemctl --global enable {USER_UNITS}",
                 USER_DIRS,
-                MASK,
                 *REGDOM,
             ],
         )
 
-    def test_phase2_keeps_the_tpm_units_of_an_encrypted_disk(self) -> None:
-        self.env["LSBLK"] = "vfat crypto_LUKS btrfs"
-        calls = self.jupiter("2")
-        self.assertFalse([call for call in calls if " mask " in call])
-        self.assertIn(f"sudo systemctl --global enable {USER_UNITS}", calls)
+    def test_phase2_leaves_the_tpm_units_to_their_condition(self) -> None:
+        # systemd runs its TPM measurements only where systemd-stub started
+        # the boot (ConditionSecurity=measured-os): nothing to mask on an
+        # install without encryption, which boots a plain kernel.
+        for lsblk in ("", "vfat crypto_LUKS btrfs"):
+            with self.subTest(lsblk=lsblk):
+                self.env["LSBLK"] = lsblk
+                calls = self.jupiter("2")
+                self.assertFalse([call for call in calls if " mask " in call])
 
     def test_phase2_skips_a_broken_package(self) -> None:
         core = packages("core.txt")
@@ -213,7 +215,6 @@ class Phases(unittest.TestCase):
                 "reflector.timer",
                 f"sudo systemctl --global enable {USER_UNITS}",
                 USER_DIRS,
-                MASK,
                 *REGDOM,
             ],
         )
@@ -515,7 +516,8 @@ class Disks(unittest.TestCase):
 
 
 class Keyboard(unittest.TestCase):
-    """The X layout phase 1 writes beside the console keymap."""
+    """The X layout both phase 1s find for the console keymap (Arch's
+    vconsole.conf names it XKBLAYOUT and so on: test_phase1)."""
 
     TABLE = (
         "# consolelayout\txlayout\txmodel\txvariant\txoptions\n"
@@ -526,29 +528,29 @@ class Keyboard(unittest.TestCase):
 
     def test_layout_model_and_options(self) -> None:
         self.assertEqual(
-            phase1.keyboard("de-latin1", self.TABLE),
+            questions.keyboard("de-latin1", self.TABLE),
             {
-                "XKBLAYOUT": "de",
-                "XKBMODEL": "pc105",
-                "XKBOPTIONS": "terminate:ctrl_alt_bksp",
+                "layout": "de",
+                "model": "pc105",
+                "options": "terminate:ctrl_alt_bksp",
             },
         )
 
     def test_first_variant(self) -> None:
-        xkb = phase1.keyboard("dvorak", self.TABLE)
-        self.assertEqual(xkb["XKBLAYOUT"], "us")
-        self.assertEqual(xkb["XKBVARIANT"], "dvorak")
+        xkb = questions.keyboard("dvorak", self.TABLE)
+        self.assertEqual(xkb["layout"], "us")
+        self.assertEqual(xkb["variant"], "dvorak")
 
     def test_unknown_keymap(self) -> None:
-        self.assertEqual(phase1.keyboard("tr", self.TABLE), {})
+        self.assertEqual(questions.keyboard("tr", self.TABLE), {})
 
     @unittest.skipUnless(phase1.KBD_MODEL_MAP.exists(), "needs systemd")
     def test_systemds_own_map(self) -> None:
         table = phase1.KBD_MODEL_MAP.read_text()
         layouts = {"us": "us", "de-latin1": "de", "fr": "fr"}
         for keymap, layout in layouts.items():
-            xkb = phase1.keyboard(keymap, table)
-            self.assertEqual(xkb["XKBLAYOUT"], layout, keymap)
+            xkb = questions.keyboard(keymap, table)
+            self.assertEqual(xkb["layout"], layout, keymap)
 
 
 class Drivers(unittest.TestCase):

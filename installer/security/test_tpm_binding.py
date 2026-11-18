@@ -5,6 +5,7 @@ are installer's test_tpm's.
 """
 
 import os
+import shutil
 import unittest
 from pathlib import Path
 
@@ -42,7 +43,10 @@ class NoBindingWithout(Machine):
     def test_setup_mode_enrols_the_keys_first(self) -> None:
         self.secure_boot(setup=True, on=False)
         calls = self.assert_nothing_enrolled()
-        self.assertIn(["sbctl", "enroll-keys", "--microsoft"], calls)
+        self.assertIn(
+            ["sbctl", "enroll-keys", "--microsoft", "--firmware-builtin"],
+            calls,
+        )
         self.assertIn("Reboot, turn Secure Boot on", self.said())
 
     def test_keys_that_cannot_be_enrolled(self) -> None:
@@ -70,6 +74,12 @@ class NoBindingWithout(Machine):
         self.assert_nothing_enrolled()
         said = self.said()
         self.assertIn("did not start from the signed kernel image", said)
+
+    def test_no_sha256_bank(self) -> None:
+        # A TPM with only SHA-1 active: named, not a traceback.
+        shutil.rmtree(self.tpm / "pcr-sha256")
+        self.assert_nothing_enrolled()
+        self.assertIn("no SHA-256 bank", self.said())
 
     def test_no_tpm(self) -> None:
         (self.tpm / "tpm_version_major").write_text("1\n")
@@ -127,9 +137,15 @@ class Binding(Machine):
         ]
         pcrs = [arg for arg in enrolled if arg.startswith("--tpm2-pcrs=")]
         self.assertEqual(pcrs, ["--tpm2-pcrs=7+15:sha256=" + "0" * 64])
-        self.assertFalse(
-            [a for a in enrolled if "pin" in a or "public-key" in a]
-        )
+        self.assertFalse([a for a in enrolled if "pin" in a])
+        # No other policy: a pcrlock.json or a signed-PCR public key lying
+        # about is turned off (empty), never named.
+        others = [
+            a
+            for a in enrolled
+            if "public-key" in a or "pcrlock" in a or "signature" in a
+        ]
+        self.assertEqual(others, ["--tpm2-pcrlock=", "--tpm2-public-key="])
 
     def test_the_recovery_key_never_passes_through_it(self) -> None:
         self.enroll()

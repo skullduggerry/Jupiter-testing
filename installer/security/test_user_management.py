@@ -153,7 +153,15 @@ class Passwords(Installing):
             for call in calls
             if "systemctl" in call and "enable" in call
         ]
-        self.assertEqual(enabled, [["NetworkManager", "systemd-timesyncd"]])
+        # The network, the clock, and systemd-boot's update at boot: none
+        # takes a login.
+        self.assertEqual(
+            enabled,
+            [
+                ["NetworkManager", "systemd-timesyncd"],
+                ["systemd-boot-update.service"],
+            ],
+        )
         self.assertNotIn("openssh", phase1.BASE)
 
     def test_the_esp_is_roots_alone(self) -> None:

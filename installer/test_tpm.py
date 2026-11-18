@@ -209,6 +209,8 @@ class Binding(Machine):
                 "--wipe-slot=tpm2",
                 "--tpm2-device=auto",
                 "--tpm2-pcrs=7+15:sha256=" + "0" * 64,
+                "--tpm2-pcrlock=",
+                "--tpm2-public-key=",
                 "/dev/vda2",
             ],
             calls,

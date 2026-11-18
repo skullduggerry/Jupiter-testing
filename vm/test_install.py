@@ -432,6 +432,17 @@ SETTINGS = (
 )
 
 
+# What an install that declines encryption does differently from BEFORE's,
+# on purpose: phase 2 no longer masks systemd's TPM units, which systemd
+# starts only where systemd-stub started the boot (measured-os), and phase
+# 1 lets systemd-boot update with systemd unencrypted too.
+SINCE_BEFORE = re.compile(
+    r"^(systemd-(tpm2-setup|pcr)\S* +masked|systemd-boot-update\.service)"
+    r"\b.*\n",
+    re.M,
+)
+
+
 class Declined(Booting):
     """Encryption declined: what phase 1 made before it asked (BEFORE)."""
 
@@ -449,7 +460,9 @@ class Declined(Booting):
         )
         before = self.machine("before", BEFORE_ANSWERS, disks, BEFORE)
         self.maxDiff = None
-        self.assertEqual(self.settings(declined), self.settings(before))
+        now, then = self.settings(declined), self.settings(before)
+        self.assertRegex(now, r"(?m)^systemd-boot-update\.service +enabled")
+        self.assertEqual(SINCE_BEFORE.sub("", now), SINCE_BEFORE.sub("", then))
 
 
 class OutsideSetupMode(Enrolling):
