@@ -14,6 +14,7 @@ installer changes; every test boots a copy of it, kept after the test in
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import unittest
@@ -306,14 +307,15 @@ class Tpm(Enrolling):
                     machine.sh(change, timeout=300)
                     machine.power_off()
                     machine.boot()
-                    with self.assertRaises(TimeoutError):
-                        machine.expect(r"login: $|[Pp]assphrase", 120)
                     # The firmware's or systemd-boot's refusal ("Access
-                    # Denied"), not BdsDxe's "failed", which any boot shows.
-                    self.assertRegex(
-                        machine.console(),
+                    # Denied"), not BdsDxe's "failed", which any boot shows;
+                    # waited for, then a while for anything to boot after it.
+                    machine.expect(
                         r"(?i)security violation|access denied|not signed",
+                        120,
                     )
+                    with self.assertRaises(TimeoutError):
+                        machine.expect(r"login: $|[Pp]assphrase", 30)
                 finally:
                     # Else the next subtest finds the machine still locked.
                     machine.kill()
@@ -398,9 +400,12 @@ class Tpm(Enrolling):
         machine.secure_boot_firmware = True
         machine.boot()
         # Named by its UUID, the root would be theirs once the volume's 90 s
-        # are over; named by its volume, there is no root, and the boot stops.
+        # are over; named by its volume, there is no root, and the boot stops:
+        # the volume's wait waited for, then a minute for anything to start.
+        machine.expect(r"Timed out waiting for device", 240)
+        self.assertNotIn("evil:42", machine.before)
         with self.assertRaises(TimeoutError):
-            machine.expect(r"evil:42|login: $", 240)
+            machine.expect(r"evil:42|login: $", 60)
         # The initramfs gives no shell: root is locked there.
         self.assertNotRegex(machine.console(), r"(?m)Give root password|# $")
         machine.kill()
@@ -573,6 +578,68 @@ class Converted(Enrolling):
         self.reboot(machine)
         self.assertNotIn("assphrase", machine.console())
         machine.power_off()
+
+
+# CI runs each group in a job of its own, at once: the tests that share an
+# install together, Tpm's split in two, so no job takes much longer than
+# another. Each test is in one group (testing/test_vm_rig.py), by its class
+# or class.method. JUPITER_VM_GROUP picks one; unset, every test runs.
+GROUPS = {
+    "unencrypted": ("Before", "Converted", "Declined"),
+    "encrypted": ("Encrypted", "OutsideSetupMode"),
+    "tpm": (
+        "Tpm.test_boots_with_nothing_typed",
+        "Tpm.test_run_again_changes_nothing",
+        "Tpm.test_a_fresh_tpm_asks_and_the_recovery_key_opens",
+        "Tpm.test_secure_boot_off_asks_for_the_passphrase",
+        "Tpm.test_a_kernel_update_is_signed_and_still_unlocks",
+        "Tpm.test_a_volume_put_in_its_place_gets_nothing",
+    ),
+    "tpm-attacks": (
+        "Tpm.test_a_changed_image_does_not_boot",
+        "Tpm.test_a_disk_without_encryption_in_its_place_gets_nothing",
+    ),
+}
+
+
+def groups_of(test: unittest.TestCase) -> list[str]:
+    """The groups that name a test."""
+    case, method = test.id().split(".")[-2:]
+    return [
+        group
+        for group, names in GROUPS.items()
+        if case in names or f"{case}.{method}" in names
+    ]
+
+
+def tests_in(suite: unittest.TestSuite) -> list[unittest.TestCase]:
+    """Every test of a suite, the suites in it opened."""
+    found: list[unittest.TestCase] = []
+    for test in suite:
+        if isinstance(test, unittest.TestSuite):
+            found += tests_in(test)
+        else:
+            assert isinstance(test, unittest.TestCase)
+            found.append(test)
+    return found
+
+
+def load_tests(
+    loader: unittest.TestLoader,
+    tests: unittest.TestSuite,
+    pattern: str | None,
+) -> unittest.TestSuite:
+    """The tests of JUPITER_VM_GROUP's group, or all of them."""
+    group = os.environ.get("JUPITER_VM_GROUP")
+    if not group:
+        return tests
+    if group not in GROUPS:
+        raise SystemExit(
+            f"JUPITER_VM_GROUP={group}: no such group ({', '.join(GROUPS)})"
+        )
+    return unittest.TestSuite(
+        test for test in tests_in(tests) if group in groups_of(test)
+    )
 
 
 if __name__ == "__main__":

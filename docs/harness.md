@@ -90,8 +90,13 @@ first and fails where it cannot run, as its tests would skip and pass
 unseen; it downloads and verifies the ISO, takes the installer's whole
 history (the `before` scenario installs an old revision), and keeps the
 cache on a Btrfs in a file on the runner's larger disk, so each test's copy
-of an install shares its blocks. A failed run keeps the serial logs as its
-artifact.
+of an install shares its blocks. The scenarios run in `vm/test_install.py`'s
+`GROUPS`, a job each at once (`JUPITER_VM_GROUP` picks one), so a run takes
+as long as its slowest group, not as all of them; a new test goes in the
+group that installs what it needs (`testing/test_vm_rig.py` fails until it
+is in one). A scenario that something must not do waits for the refusal it
+expects, then a short while, rather than its whole timeout. A failed job
+keeps its serial logs as its artifact.
 
 **NixOS** (`harness/nix.py`). The installer's modules evaluated as the
 flake does (`nixos/`, a host's `hardware-configuration.nix` and its

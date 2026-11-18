@@ -9,6 +9,7 @@ the file its kind is told by.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -235,6 +236,22 @@ class Workflows(unittest.TestCase):
         self.assertIn("sha256sum -c", text)
         self.assertIn("fetch --quiet --unshallow", text)
         self.assertIn("mkfs.btrfs", text)
+
+    def test_the_vm_runs_every_group(self) -> None:
+        # A group left out of the matrix would never run in CI.
+        from vm.test_install import GROUPS
+
+        text = (TESTING / self.WORKFLOWS / "vm.yml").read_text()
+        matrix = re.search(r"(?m)^ +group: \[(.*)\]$", text)
+        self.assertIsNotNone(matrix, "vm.yml has no matrix of groups")
+        assert matrix  # for mypy
+        self.assertEqual(
+            [name.strip() for name in matrix.group(1).split(",")],
+            list(GROUPS),
+        )
+        self.assertIn(
+            "JUPITER_VM_GROUP=${{ matrix.group }} scripts/vm.sh", text
+        )
 
     def test_this_repo_has_what_the_skipped_tests_need(self) -> None:
         # What the other repos' CI skips the tests of, by what they look for.

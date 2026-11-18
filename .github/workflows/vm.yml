@@ -8,9 +8,11 @@
 #
 # GitHub's runners have KVM. The rig keeps an install per set of answers and
 # boots each test from a copy of one, which Btrfs makes at no cost, so its
-# cache lives on a Btrfs in a file on the runner's larger disk. A rig that
-# cannot run fails the job rather than skip it; a failing test's serial logs
-# are kept as the run's artifact.
+# cache lives on a Btrfs in a file on the runner's larger disk. The tests run
+# in vm/test_install.py's GROUPS, a job each at once, each installing what
+# its own tests need: about ten minutes, where one job took thirty. A rig
+# that cannot run fails the job rather than skip it; a failing job's serial
+# logs are kept as an artifact of its own.
 name: VM tests
 
 on:
@@ -42,9 +44,15 @@ defaults:
 
 jobs:
   vm:
-    name: "Arch: install in a VM"
+    name: "Arch: install in a VM (${{ matrix.group }})"
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    # A group takes ten minutes or so: a hung one fails within the hour.
+    timeout-minutes: 60
+    strategy:
+      # Every group runs to its end: one failing says nothing of the others.
+      fail-fast: false
+      matrix:
+        group: [unencrypted, encrypted, tpm, tpm-attacks]
     container:
       image: archlinux:latest
       # The runner's /mnt, its larger disk, for the VMs' Btrfs.
@@ -95,7 +103,7 @@ jobs:
       - name: Run VM tests
         run: |
           cd Jupiter-testing
-          sudo -u ci -H scripts/vm.sh
+          sudo -u ci -H env JUPITER_VM_GROUP=${{ matrix.group }} scripts/vm.sh
       - name: Show disk usage
         if: always()
         run: df -h /home/ci/.cache /host-mnt || true
@@ -104,7 +112,7 @@ jobs:
         if: failure() || cancelled()
         uses: actions/upload-artifact@v7
         with:
-          name: vm-logs
+          name: vm-logs-${{ matrix.group }}
           path: |
             /home/ci/.cache/jupiter-testing/vm/*/serial-*.log
             /home/ci/.cache/jupiter-testing/vm/*/phases.log

@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from vm import install, rig
+from vm import install, rig, test_install
 
 
 class Console(unittest.TestCase):
@@ -281,3 +281,46 @@ class Skipping(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Groups(unittest.TestCase):
+    """vm/test_install.py's GROUPS, which CI runs a job each of: loaded,
+    never run, with JUPITER_VM_GROUP as vm.yml sets it."""
+
+    def loaded(self, group: str) -> list[str]:
+        with mock.patch.dict(os.environ, {"JUPITER_VM_GROUP": group}):
+            suite = unittest.defaultTestLoader.loadTestsFromModule(
+                test_install
+            )
+        return [test.id() for test in test_install.tests_in(suite)]
+
+    def test_every_test_is_in_one_group(self) -> None:
+        # Else CI would run it twice, or never.
+        every = unittest.defaultTestLoader.loadTestsFromModule(test_install)
+        for test in test_install.tests_in(every):
+            with self.subTest(test=test.id()):
+                self.assertEqual(len(test_install.groups_of(test)), 1)
+
+    def test_a_group_loads_its_tests_alone(self) -> None:
+        loaded = {group: self.loaded(group) for group in test_install.GROUPS}
+        every = unittest.defaultTestLoader.loadTestsFromModule(test_install)
+        self.assertEqual(
+            sorted(name for names in loaded.values() for name in names),
+            sorted(test.id() for test in test_install.tests_in(every)),
+        )
+        self.assertIn(
+            "vm.test_install.Tpm.test_a_changed_image_does_not_boot",
+            loaded["tpm-attacks"],
+        )
+        self.assertNotIn(
+            "vm.test_install.Tpm.test_boots_with_nothing_typed",
+            loaded["tpm-attacks"],
+        )
+
+    def test_an_unknown_group_is_refused_by_name(self) -> None:
+        with self.assertRaises(SystemExit) as refused:
+            self.loaded("tmp")
+        self.assertIn(
+            "JUPITER_VM_GROUP=tmp: no such group", str(refused.exception)
+        )
+        self.assertIn("tpm-attacks", str(refused.exception))
