@@ -73,3 +73,19 @@ def environment(**changes: str | None) -> dict[str, str]:
         else:
             env[key] = value
     return env
+
+
+def no_stdin(case: unittest.TestCase) -> None:
+    """This process's stdin is /dev/null until the test ends, so a command
+    run without input reads nothing, and a stand-in can record every
+    command's stdin, the ones given none included."""
+    saved = os.dup(0)
+    devnull = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(devnull, 0)
+    os.close(devnull)
+
+    def restore() -> None:
+        os.dup2(saved, 0)
+        os.close(saved)
+
+    case.addCleanup(restore)

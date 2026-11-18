@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from harness import INSTALLER
 
@@ -37,7 +38,14 @@ INSTALLED_ONLY = {
     "jupiter/keyring.py",
     "arch/packages/pacman.txt",
     "arch/packages/aur.txt",
+    "jupiter/fingerprint.py",
+    "CLAUDE.md",
+    "flake.nix",
+    "flake.lock",
 }
+# Folders the Arch install never reads: NixOS's side, and documents (the
+# procedure Converted runs is read by the test, not installed).
+NOT_INSTALLED = {"docs", "nixos", "hosts"}
 
 
 @dataclass
@@ -114,6 +122,8 @@ def fingerprint(
     the answers and the disks."""
     digest = hashlib.sha256(answers.key().encode())
     digest.update(repr(disks).encode())
+    # This file too: its passwords, its dialogue and its console line.
+    digest.update(Path(__file__).read_bytes())
     if revision:
         commit = subprocess.run(
             ["git", "-C", INSTALLER, "rev-parse", f"{revision}^{{commit}}"],
@@ -130,7 +140,8 @@ def fingerprint(
             and not relative.parts[0].startswith(".")
             and "__pycache__" not in relative.parts
             and str(relative) not in INSTALLED_ONLY
-            and relative.parts[0] != "docs"
+            and relative.parts[0] not in NOT_INSTALLED
+            and relative.parts[:2] != ("jupiter", "nixos")
         ):
             digest.update(str(relative).encode())
             digest.update(path.read_bytes())

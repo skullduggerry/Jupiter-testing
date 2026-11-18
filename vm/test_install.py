@@ -270,7 +270,8 @@ class Tpm(Enrolling):
     def test_a_fresh_tpm_asks_and_the_recovery_key_opens(self) -> None:  # (b)
         machine, said = self.enrolled()
         found = RECOVERY_KEY.search(said)
-        assert found
+        self.assertIsNotNone(found, said)
+        assert found  # for mypy
         machine.power_off()
         shutil.rmtree(machine.folder / "tpm")
         self.booted(machine, found.group(0))
@@ -290,7 +291,6 @@ class Tpm(Enrolling):
             "printf X | dd of=/boot/EFI/Linux/arch-linux.efi bs=1 "
             "seek=$(( $(stat -c %s /boot/EFI/Linux/arch-linux.efi) / 2 )) "
             "conv=notrunc",
-            # The image built again with sbctl's hook left out: unsigned.
             # The image with its signature taken off: the PE security
             # directory zeroed and the certificates cut away.
             'python3 -c \'import struct,sys;p=sys.argv[1];b=bytearray(open(p,"rb").read());'
@@ -302,16 +302,21 @@ class Tpm(Enrolling):
         ):
             with self.subTest(change=change.split()[0]):
                 machine, _ = self.enrolled()
-                machine.sh(change, timeout=300)
-                machine.power_off()
-                machine.boot()
-                with self.assertRaises(TimeoutError):
-                    machine.expect(r"login: $|[Pp]assphrase", 120)
-                self.assertRegex(
-                    machine.console(),
-                    r"(?i)security violation|access denied|not signed|failed",
-                )
-                machine.kill()
+                try:
+                    machine.sh(change, timeout=300)
+                    machine.power_off()
+                    machine.boot()
+                    with self.assertRaises(TimeoutError):
+                        machine.expect(r"login: $|[Pp]assphrase", 120)
+                    # The firmware's or systemd-boot's refusal ("Access
+                    # Denied"), not BdsDxe's "failed", which any boot shows.
+                    self.assertRegex(
+                        machine.console(),
+                        r"(?i)security violation|access denied|not signed",
+                    )
+                finally:
+                    # Else the next subtest finds the machine still locked.
+                    machine.kill()
 
     def test_a_volume_put_in_its_place_gets_nothing(self) -> None:  # (d)
         machine, _ = self.enrolled()
@@ -350,7 +355,7 @@ class Tpm(Enrolling):
             machine.expect(r"login: $", 60)
         console = machine.console()
         # The initramfs gives no shell: root is locked there.
-        self.assertNotRegex(console, r"Give root password|# $")
+        self.assertNotRegex(console, r"(?m)Give root password|# $")
         machine.kill()
 
     def test_a_disk_without_encryption_in_its_place_gets_nothing(
@@ -397,7 +402,7 @@ class Tpm(Enrolling):
         with self.assertRaises(TimeoutError):
             machine.expect(r"evil:42|login: $", 240)
         # The initramfs gives no shell: root is locked there.
-        self.assertNotRegex(machine.console(), r"Give root password|# $")
+        self.assertNotRegex(machine.console(), r"(?m)Give root password|# $")
         machine.kill()
 
     def test_a_kernel_update_is_signed_and_still_unlocks(self) -> None:  # (e)

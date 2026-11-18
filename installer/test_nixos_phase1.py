@@ -22,6 +22,7 @@ from unittest import mock
 from jupiter import disks, questions
 from jupiter.nixos import phase1
 
+from harness import no_stdin
 from harness.disks import KBD_MODEL_MAP, LSBLK
 
 ESP = "4A3B-1C2D"
@@ -31,12 +32,9 @@ HARDWARE = "{ boot.kernelModules = [ ]; }\n"
 STAND_IN = f"""#!{sys.executable}
 import json, os, sys
 name, args = os.path.basename(sys.argv[0]), sys.argv[1:]
-given = (
-    name == "sfdisk" and "--json" not in args
-    or name == "cryptsetup" and args[0] != "config"
-    or "chpasswd" in args
-)
-data = sys.stdin.read() if given else ""
+# Every command's stdin, so a secret given to any is seen (the test's own
+# stdin is /dev/null: one given nothing reads nothing).
+data = sys.stdin.read()
 table = {{"partitiontable": {{"partitions": [
     {{"node": args[-1] + "1"}}, {{"node": args[-1] + "2"}}
 ]}}}}
@@ -80,6 +78,7 @@ class Installing(unittest.TestCase):
     """The NixOS ISO of stand-ins, a temporary /mnt and an NVIDIA machine."""
 
     def setUp(self) -> None:
+        no_stdin(self)
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.mnt = tmp / "mnt"
         self.mnt.mkdir()

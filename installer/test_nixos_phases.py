@@ -48,6 +48,9 @@ class World(unittest.TestCase):
         ):  # fmt: skip
             executable(self.bin / name, RECORD)
         executable(self.bin / "findmnt", "#!/bin/sh\necho '/dev/vda2[/@]'\n")
+        # Online, whatever this machine is: its real nm-online would wait
+        # 30 s, or fail, offline.
+        executable(self.bin / "nm-online", "#!/bin/sh\nexit 0\n")
         executable(self.bin / "fprintd-list", "#!/bin/sh\nexit 1\n")
         origin = tmp / "Jupiter-dotfiles"
         for name in ("hypr/hyprland.lua", "kitty/kitty.conf", ".zshrc"):

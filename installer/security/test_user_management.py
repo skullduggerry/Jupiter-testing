@@ -190,9 +190,15 @@ class Passwords(Installing):
 
 class Privileges(unittest.TestCase):
     def test_phases_3_and_4_refuse_root(self) -> None:
+        # Phases that only record: were the refusal to break, the real ones
+        # would run pacman through sudo on this machine.
+        ran: list[int] = []
+        record = {n: (lambda n=n: ran.append(n)) for n in main.PHASES}
         for phases in (["3"], ["4"], ["2", "3"]):
             with (
                 self.subTest(phases=phases),
+                mock.patch.dict(main.PHASES, record),
+                mock.patch.object(main, "online", return_value=True),
                 mock.patch("os.geteuid", return_value=0),
                 mock.patch("sys.argv", ["jupiter", *phases]),
                 mock.patch("sys.stderr"),
@@ -200,6 +206,7 @@ class Privileges(unittest.TestCase):
             ):
                 main.main()
             self.assertEqual(stopped.exception.code, 2)
+            self.assertEqual(ran, [])
 
     def test_phase_1_only_from_the_live_iso(self) -> None:
         with (

@@ -65,8 +65,10 @@ elif name == "systemd-cryptenroll":
         tokens[str(len(tokens))] = {{"type": "systemd-recovery"}}
         print("recovery key: " + os.environ["RECOVERY_KEY"])
     else:
-        for key in [k for k, t in tokens.items() if t["type"] == "systemd-tpm2"]:
-            del tokens[key]
+        # As the real tool: the old TPM slots go only when told to.
+        if "--wipe-slot=tpm2" in args:
+            for key in [k for k, t in tokens.items() if t["type"] == "systemd-tpm2"]:
+                del tokens[key]
         tokens[str(len(tokens) + 10)] = {{
             "type": "systemd-tpm2",
             "tpm2-pcrs": [7, 15],

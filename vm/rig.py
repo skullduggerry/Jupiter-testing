@@ -604,8 +604,11 @@ def _reflink(source: str, target: str) -> None:
 
 
 def live_boot_files(folder: Path) -> tuple[Path, Path, str]:
-    """The ISO's kernel, initramfs and command line, extracted once."""
-    target = folder.parent / "iso"
+    """The ISO's kernel, initramfs and command line, extracted once per
+    ISO: a new one (by size and time) has its own, whose archisosearchuuid
+    matches it."""
+    stat = ISO.stat()
+    target = folder.parent / f"iso-{stat.st_size}-{int(stat.st_mtime)}"
     kernel = target / "arch/boot/x86_64/vmlinuz-linux"
     initrd = target / "arch/boot/x86_64/initramfs-linux.img"
     entry = target / "loader/entries/01-archiso-linux.conf"

@@ -20,6 +20,7 @@ from jupiter import disks, questions, secureboot
 from jupiter.arch import phase1
 from jupiter.common import INSTALLER_DIR
 
+from harness import no_stdin
 from harness.disks import GIB, KBD_MODEL_MAP, LSBLK
 
 UUID = "0a1b2c3d-1111-2222-3333-444455556666"
@@ -27,12 +28,9 @@ UUID = "0a1b2c3d-1111-2222-3333-444455556666"
 STAND_IN = f"""#!{sys.executable}
 import json, os, sys
 name, args = os.path.basename(sys.argv[0]), sys.argv[1:]
-given = (
-    name == "sfdisk" and "--json" not in args
-    or name == "cryptsetup" and args[0] != "config"
-    or "chpasswd" in args
-)
-data = sys.stdin.read() if given else ""
+# Every command's stdin, so a secret given to any is seen (the test's own
+# stdin is /dev/null: one given nothing reads nothing).
+data = sys.stdin.read()
 disk = args[-1]
 table = {{"partitiontable": {{"partitions": [
     {{"node": disk + "1"}}, {{"node": disk + "2"}}
@@ -88,6 +86,7 @@ class Installing(unittest.TestCase):
     """A live ISO of stand-ins, a temporary /mnt and an NVIDIA machine."""
 
     def setUp(self) -> None:
+        no_stdin(self)
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.mnt = tmp / "mnt"
         self.mnt.mkdir()
@@ -794,6 +793,7 @@ class SignedBoot(Encrypting):
         for setup, secure_boot in ((False, True), (False, False)):
             with self.subTest(setup=setup, secure_boot=secure_boot):
                 self.calls.write_text("")
+                self.printed.reset_mock()  # this subtest's output alone
                 for path in self.mnt.iterdir():
                     shutil.rmtree(path)
                 self.firmware(setup, secure_boot)

@@ -49,9 +49,23 @@ class Keyrings(unittest.TestCase):
                 tpm, "root_volume", return_value=("root", "/dev/vda2")
             )
         )
-        # It reaches nothing through another program.
+        # It reaches nothing through another program, nor the desktop this
+        # runs on: no session of yours, and no dialog (GLib's D-Bus is no
+        # program, so Popen alone would not stop it). ReKeying gives the
+        # flow a session and a dialog of its own.
         self.enterContext(
             mock.patch("subprocess.Popen", side_effect=AssertionError)
+        )
+        self.enterContext(
+            mock.patch.dict(
+                os.environ,
+                {"WAYLAND_DISPLAY": "", "DBUS_SESSION_BUS_ADDRESS": ""},
+            )
+        )
+        self.enterContext(
+            mock.patch.object(
+                keyring, "_change_password", side_effect=AssertionError
+            )
         )
 
 

@@ -4,6 +4,7 @@ let the recovery key through its own hands. The machine and its stand-ins
 are installer's test_tpm's.
 """
 
+import json
 import os
 import shutil
 import unittest
@@ -128,6 +129,19 @@ class RootByUuid(Machine):
 
 
 class Binding(Machine):
+    def test_one_tpm_slot_after_enrolling_again(self) -> None:
+        # A slot bound to the old PCR 7 left beside the new one would open
+        # the disk for whatever booted under the old Secure Boot state.
+        self.enroll()
+        (self.tpm / "pcr-sha256/7").write_text("b3" * 32 + "\n")
+        os.environ["POLICY"] = tpm.policy("b3" * 32)
+        self.enroll()
+        header = json.loads((self.world / "header.json").read_text())
+        tokens = header["tokens"].values()
+        self.assertEqual(
+            [t["type"] for t in tokens].count("systemd-tpm2"), 1, tokens
+        )
+
     def test_to_pcr_7_and_15_zero_only(self) -> None:
         calls = self.enroll()
         [enrolled] = [

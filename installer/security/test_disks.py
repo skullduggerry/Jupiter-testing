@@ -44,7 +44,11 @@ class Passphrase(Encrypting):
         self.assertFalse([arg for arg in arguments if PASSPHRASE in arg])
         stdin = [call[-1] for call in calls if call[0] != "cryptsetup"]
         self.assertFalse([data for data in stdin if PASSPHRASE in data])
-        for path in self.mnt.rglob("*"):
+        # Anywhere it could write: the new system, and beside it the live
+        # ISO's /run stand-in (disks.ERASED); not the stand-ins' own record.
+        for path in self.mnt.parent.rglob("*"):
+            if path == self.calls:
+                continue
             if path.is_file() and not path.is_symlink():
                 with self.subTest(path=path):
                     self.assertNotIn(PASSPHRASE.encode(), path.read_bytes())
@@ -104,7 +108,7 @@ class DisksNotChosen(Encrypting):
             for disk in NOT_CHOSEN:
                 with self.subTest(call=call[:3], disk=disk):
                     self.assertFalse(
-                        [arg for arg in call[1:-1] if arg.startswith(disk)]
+                        [arg for arg in call[1:-1] if disk in arg]
                     )
         # The keymap's list and loadkeys name no disk; then lsblk is first.
         self.assertEqual(
