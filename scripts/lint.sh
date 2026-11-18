@@ -170,9 +170,11 @@ names() { (($#)) && printf '%s\0' "$@"; }
 names "${qml[@]}" "${python[@]}" "${shell[@]}" "${lua[@]}" "${nix[@]}" |
     xargs -0 -r -P "$jobs" -n 8 bash -c '
         for f; do
-            if ! out=$(formatted "$f" 2>/dev/null); then
+            # The dots keep trailing newlines, which $( ) strips: blank
+            # lines at the end count as a difference.
+            if ! out=$(formatted "$f" 2>/dev/null && printf .); then
                 echo "unparsed $f"
-            elif [[ $out != "$(<"$f")" ]]; then
+            elif [[ $out != "$(cat -- "$f" && printf .)" ]]; then
                 echo "unformatted $f"
             fi
         done' _ | sort -k2 >"$tmp/formatting"

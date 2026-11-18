@@ -129,6 +129,10 @@ def main(argv: list[str] | None = None) -> int:
         path: collect(name, arguments.patterns)
         for path, name in modules.items()
     }
+    if not any(ids.values()):
+        # A typo in -k, or suites gone missing, must not read as a pass.
+        print("  FAIL  no test matches", " ".join(arguments.patterns))
+        return 1
     known = durations()
     # The slowest first, so none is left to run alone at the end.
     queue = sorted(

@@ -4,7 +4,7 @@ The linters and tests of [Jupiter-dotfiles](https://github.com/skullduggerry/Jup
 
 Part of Jupiter: [Jupiter-installer](https://github.com/skullduggerry/Jupiter-installer) sets up [Jupiter-dotfiles](https://github.com/skullduggerry/Jupiter-dotfiles), and this repo checks both, and itself.
 
-## Installing
+## Setup
 
 Clone the three repos next to each other:
 
@@ -14,7 +14,7 @@ git clone https://github.com/skullduggerry/Jupiter-installer.git
 git clone https://github.com/skullduggerry/Jupiter-testing.git
 ```
 
-or point `JUPITER_DOTFILES` and `JUPITER_INSTALLER` at wherever they are. The installer's NixOS evaluation tests need Nix and a nixpkgs (`JUPITER_NIXPKGS`, or Nix's `<nixpkgs>`), and are skipped without them. The tools are in Jupiter-installer's `packages/pacman.txt`, which its phase 3 installs; a missing one is named with its package.
+or point `JUPITER_DOTFILES` and `JUPITER_INSTALLER` at wherever they are. The installer's NixOS evaluation tests need Nix and a nixpkgs (`JUPITER_NIXPKGS`, or Nix's `<nixpkgs>`), and are skipped without them. The tools are in Jupiter-installer's `arch/packages/pacman.txt`, which its phase 3 installs; a missing one is named with its package.
 
 ## Usage
 
@@ -32,20 +32,21 @@ Jupiter-dotfiles and Jupiter-installer have a `check.sh` of their own that takes
 
 Everything runs against stand-ins in temporary folders: nothing on the machine changes, and nothing reaches the network but loopback. Each test runs in a process of its own, as many at once as there are CPUs.
 
-| Suite | What it checks |
+| Suite | Tests |
 |---|---|
 | `dotfiles/` | Every helper script of the dotfiles against stand-in commands, and the shell's QML logic inside Quickshell |
 | `dotfiles/security/` | The lock and login screens, the Nextcloud app password, text from outside |
 | `installer/` | Every phase, on Arch and on NixOS (`test_nixos_*`), against stand-in commands and a temporary `/mnt` or home; which system it is on; the `check` command; the NixOS modules evaluated by Nix |
 | `installer/security/` | Who phase 1 makes a user with which rights, and what the installer fetches and opens; on NixOS also the passphrase and passwords kept out of the configuration, and the PAM stacks, finger and firewall the flake declares |
-| `testing/` | This repo's own tooling: the QML runner, the parallel runner, `lint.sh` and `check.sh` |
+| `testing/` | This repo's own tooling: the QML runner, the parallel runner, `lint.sh`, `check.sh` and the VM rig |
+| `vm/` | The installer end to end in a VM: QEMU with OVMF (Secure Boot) and swtpm, from the Arch ISO. Not part of `check.sh`: run `scripts/vm.sh` (CI runs it weekly) |
 
 ## CI
 
-Jupiter-dotfiles and Jupiter-installer each check their own pushes and pull requests with this repo's tools, on both systems the installer supports, by a `.github/workflows/check.yml` of their own: the repo's linters and suites in an Arch container, and on Nix the dotfiles' Hyprland config and QML suites on NixOS's Hyprland and Quickshell, or the installer's flake evaluated and built. This repo's own check.yml checks all three with its tools as pushed, as a change to them can break any repo's checks: every repo's linters and suites, and on Nix both repos' NixOS checks. It also runs the tests the other two skip, for want of a desktop's daemons or of user namespaces with capabilities, and the log names every test still skipped and why. Daily on main too. `scripts/ci-repos.sh` lays the repos out; [docs/harness.md](docs/harness.md#ci) says how.
+Each repo's `.github/workflows/check.yml` runs on every push and pull request, and daily on main, with two jobs: lint and test in an Arch container, and the NixOS checks on Nix. Jupiter-dotfiles and Jupiter-installer check themselves; this repo checks all three as pushed, since a change to its tools can break any of them, including the tests the other two skip (they need a desktop's daemons or user namespaces with capabilities). The log names every test still skipped and why. `vm.yml` runs the VM suite weekly. Details: [docs/harness.md](docs/harness.md#ci).
 
 ## Documentation
 
 - [Development](https://github.com/skullduggerry/Jupiter-dotfiles/wiki/Development) in the wiki shared by the three repos: the checks, the suites, writing a test.
-- [AGENTS.md](AGENTS.md): the map, the conventions and the pitfalls, for coding agents (Claude Code reads it through `CLAUDE.md`).
+- [CLAUDE.md](CLAUDE.md): the map, the conventions and the pitfalls, for coding agents.
 - [docs/harness.md](docs/harness.md): the stand-ins, CI, the security model and how a security test proves itself.

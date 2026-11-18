@@ -28,6 +28,11 @@ on:
   schedule:
     - cron: "37 4 * * *"
 
+# The token reads the repo, nothing more: the steps run other repos'
+# branches' code.
+permissions:
+  contents: read
+
 concurrency:
   group: check-${{ github.ref }}
   cancel-in-progress: true
@@ -43,13 +48,24 @@ defaults:
 
 jobs:
   arch:
-    name: Arch (every repo's lint and suites)
+    name: "Arch: lint and test all repos"
     runs-on: ubuntu-latest
+    # A hung test fails in hours, not GitHub's six.
+    timeout-minutes: 120
+    env:
+      # Nix's settings in the container, with the job's token for GitHub's
+      # API, as install-nix-action gives the nixos job: unauthenticated,
+      # fetching the flake's inputs runs into its rate limit.
+      NIX: |
+        experimental-features = nix-command flakes
+        build-users-group =
+        sandbox = false
+        access-tokens = github.com=${{ github.token }}
     container:
       image: archlinux:latest
       options: --privileged
     steps:
-      - name: Let user namespaces keep their capabilities
+      - name: Allow unprivileged user namespaces
         # As an Arch desktop's do. The runner's Ubuntu withholds them
         # (AppArmor), so the PAM sandbox cannot map its user, nor newuidmap
         # a second one, and the lock and login screens' tests that need
@@ -57,7 +73,7 @@ jobs:
         run: |
           restrict=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
           if [ -e "$restrict" ]; then echo 0 > "$restrict"; fi
-      - name: Install tools
+      - name: Install packages
         # What lint.sh and test.sh ask for, for every repo; mypy's stubs;
         # the VM rig's tools, which its own tests check for (vm/ itself
         # needs KVM and the ISO: scripts/vm.sh); and what an installed
@@ -80,7 +96,7 @@ jobs:
             gnome-keyring dbus glib2 greetd
           # To compare with the desktop when a check passes there only.
           pacman -Q quickshell qt6-declarative hyprland lua-language-server python nix
-      - name: Add an unprivileged user
+      - name: Create test user
         # Root reads every file, which the permission checks rely on not
         # doing, and the installer's phases refuse it. Nix runs as that user
         # too, single-user, its store theirs.
@@ -98,7 +114,7 @@ jobs:
           # A session's runtime folder, which Hyprland's config check insists on.
           install -d -m 700 -o ci "/run/user/$(id -u ci)"
       - id: wallust
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: /home/ci/.cargo
           key: cargo-wallust-3.5.1
@@ -110,18 +126,18 @@ jobs:
           sudo -u ci -H cargo install --locked wallust --version 3.5.1
       # Saved straight away, so a failing check doesn't cost the next run the build.
       - if: steps.wallust.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: /home/ci/.cargo
           key: cargo-wallust-3.5.1
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: checkout
-      - name: Lay out the repos
+      - name: Clone repos
         run: |
           chown -R ci: "$GITHUB_WORKSPACE"
           sudo -u ci -H env GIT_TERMINAL_PROMPT=0 bash checkout/scripts/ci-repos.sh checkout "$BRANCH"
-      - name: Find the flake's nixpkgs
+      - name: Find flake nixpkgs
         id: nixpkgs
         # The installer's NixOS suites evaluate its modules against the
         # nixpkgs its flake.lock pins.
@@ -132,40 +148,25 @@ jobs:
           # The Nix linters (nixfmt, statix, deadnix), from the same nixpkgs.
           sudo -u ci -H env NIX_CONFIG="$NIX" nix build --impure --out-link /home/ci/tools/nix \
             --expr "with import $nixpkgs { }; buildEnv { name = \"nix-linters\"; paths = [ nixfmt statix deadnix ]; }"
-        env:
-          # The job's token for GitHub's API, as install-nix-action gives the
-          # nixos job: unauthenticated, fetching the flake's inputs runs into
-          # its rate limit.
-          NIX: |
-            experimental-features = nix-command flakes
-            build-users-group =
-            sandbox = false
-            access-tokens = github.com=${{ github.token }}
-      - name: Every repo, linted and tested
-        if: steps.nixpkgs.outcome == 'success'
+      - name: Lint and test
         run: |
           cd Jupiter-testing
           sudo -u ci -H env PATH="/home/ci/.cargo/bin:/home/ci/tools/nix/bin:$PATH" XDG_RUNTIME_DIR="/run/user/$(id -u ci)" \
             JUPITER_NIXPKGS="$JUPITER_NIXPKGS" NIX_CONFIG="$NIX" ./check.sh check all
-        env:
-          # As above.
-          NIX: |
-            experimental-features = nix-command flakes
-            build-users-group =
-            sandbox = false
-            access-tokens = github.com=${{ github.token }}
 
   nixos:
-    name: NixOS (the flake, its Hyprland and Quickshell)
+    name: "NixOS: check flake, Hyprland and Quickshell"
     runs-on: ubuntu-latest
+    # A hung test fails in hours, not GitHub's six.
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: checkout
       - uses: cachix/install-nix-action@v31
-      - name: Lay out the repos
+      - name: Clone repos
         run: GIT_TERMINAL_PROMPT=0 bash checkout/scripts/ci-repos.sh checkout "$BRANCH"
-      - name: The system, its Hyprland and its Quickshell
+      - name: Run NixOS checks
         # scripts/nixos-check.sh says what it checks: with no part named,
         # both repos'.
         run: bash Jupiter-testing/scripts/nixos-check.sh

@@ -72,7 +72,8 @@ class Documents(unittest.TestCase):
             (name, REPOS[name] / file, (REPOS[name] / file).read_text())
             for name, files in self.files.items()
             for file in files
-            if file.endswith(".md")
+            # A deletion not yet committed is no document.
+            if file.endswith(".md") and (REPOS[name] / file).exists()
         ]
 
     def test_relative_links_lead_somewhere(self) -> None:
@@ -111,26 +112,40 @@ class Documents(unittest.TestCase):
             or re.fullmatch(r"\w+_min/max", path) is not None
         )
 
+    def modules(self, module: str) -> list[Path]:
+        """The files a `module.Name` may mean: module.py, or a package's
+        __init__.py, at a repo's root or in any folder of it."""
+        names = (f"{module}.py", f"{module}/__init__.py")
+        return [
+            REPOS[repo] / file
+            for repo, files in self.files.items()
+            for file in files
+            if file in names or file.endswith(tuple(f"/{n}" for n in names))
+        ]
+
     def test_named_tests_are_defined(self) -> None:
         for name, document, text in self.documents():
             for module, defined in NAME.findall(text):
-                file = next(
-                    (
-                        repo / f"{module}.py"
-                        for repo in REPOS.values()
-                        if (repo / f"{module}.py").exists()
-                    ),
-                    None,
-                )
-                if file is None:
+                files = self.modules(module)
+                # A bare word.Name with no such module is prose (a domain,
+                # a file name), unless it names a path.
+                if not files and "/" not in module:
                     continue
                 with self.subTest(
                     document=f"{name}/{document.name}",
                     name=f"{module}.{defined}",
                 ):
-                    self.assertRegex(
-                        file.read_text(),
-                        rf"(?m)^\s*(class|def) {defined}\b",
+                    self.assertTrue(files, f"no module {module}")
+                    self.assertTrue(
+                        any(
+                            re.search(
+                                rf"(?m)^\s*(class {defined}\b|def {defined}\b"
+                                rf"|{defined}\b[^=\n]*=)",
+                                file.read_text(),
+                            )
+                            for file in files
+                        ),
+                        f"{module} defines no {defined}",
                     )
 
 

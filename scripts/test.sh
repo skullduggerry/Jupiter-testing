@@ -114,7 +114,9 @@ COVERAGE_PROCESS_START=$testing/pyproject.toml COVERAGE_FILE=$tmp/coverage/data 
 
 if ((floor)); then
     export COVERAGE_FILE=$tmp/coverage/data
-    coverage combine --quiet --rcfile=pyproject.toml "$tmp/coverage" 2>/dev/null
+    # Its error says why when no test recorded anything, which the
+    # report below would only show as every file not run.
+    coverage combine --quiet --rcfile=pyproject.toml "$tmp/coverage"
     coverage json --quiet --rcfile=pyproject.toml -o "$tmp/coverage.json" \
         --include="$JUPITER_DOTFILES/*,$JUPITER_INSTALLER/*" 2>/dev/null ||
         echo '{"files": {}}' >"$tmp/coverage.json"

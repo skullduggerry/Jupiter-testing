@@ -14,7 +14,7 @@ import pathlib
 import re
 import sys
 
-PRIVATE_USE = re.compile("[-\U000f0000-\U000ffffd]")
+PRIVATE_USE = re.compile("[\ue000-\uf8ff\U000f0000-\U000ffffd]")
 
 repo = pathlib.Path(sys.argv[1])
 found = [

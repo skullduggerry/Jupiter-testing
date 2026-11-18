@@ -11,7 +11,7 @@
 # cache lives on a Btrfs in a file on the runner's larger disk. A rig that
 # cannot run fails the job rather than skip it; a failing test's serial logs
 # are kept as the run's artifact.
-name: VM
+name: VM tests
 
 on:
   push:
@@ -22,6 +22,10 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "23 1 * * 0"
+
+# The token reads the repo, nothing more.
+permissions:
+  contents: read
 
 concurrency:
   group: vm-${{ github.ref }}
@@ -38,7 +42,7 @@ defaults:
 
 jobs:
   vm:
-    name: Installed in a VM, end to end
+    name: "Arch: install in a VM"
     runs-on: ubuntu-latest
     timeout-minutes: 330
     container:
@@ -46,18 +50,18 @@ jobs:
       # The runner's /mnt, its larger disk, for the VMs' Btrfs.
       options: --privileged -v /mnt:/host-mnt
     steps:
-      - name: Install tools
+      - name: Install packages
         # The rig's (vm/rig.py's TOOLS and OVMF), Btrfs's, and what lays the
         # repos out.
         run: |
           pacman -Syu --noconfirm --needed git sudo python \
             qemu-system-x86 swtpm edk2-ovmf libarchive util-linux btrfs-progs
           pacman -Q qemu-system-x86 swtpm edk2-ovmf
-      - name: Add an unprivileged user, with KVM
+      - name: Create test user with KVM access
         run: |
           useradd -m ci
           chmod 666 /dev/kvm
-      - name: A Btrfs for the VMs
+      - name: Create Btrfs image for VMs
         # Sparse: it takes only what the installs write.
         run: |
           df -h / /host-mnt
@@ -66,7 +70,7 @@ jobs:
           install -d -o ci /home/ci/.cache
           mount -o loop /host-mnt/vms.img /home/ci/.cache
           chown ci: /home/ci/.cache
-      - name: The Arch ISO
+      - name: Download Arch ISO
         run: |
           iso=/home/ci/.cache/jupiter-testing
           sudo -u ci mkdir -p "$iso"
@@ -74,30 +78,31 @@ jobs:
           sudo -u ci curl -fsSLO "$ISO_MIRROR/archlinux-x86_64.iso"
           sudo -u ci curl -fsSLO "$ISO_MIRROR/sha256sums.txt"
           grep ' archlinux-x86_64.iso$' sha256sums.txt | sha256sum -c -
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: checkout
-      - name: Lay out the repos
+      - name: Clone repos
         run: |
           chown -R ci: "$GITHUB_WORKSPACE"
           sudo -u ci -H env GIT_TERMINAL_PROMPT=0 bash checkout/scripts/ci-repos.sh checkout "$BRANCH"
           # The whole history: one scenario installs an old revision.
           sudo -u ci -H git -C Jupiter-installer fetch --quiet --unshallow
-      - name: The rig can run
+      - name: Check VM prerequisites
         # Its tests skip where it cannot, which would pass unseen here.
         run: |
           cd Jupiter-testing
           sudo -u ci -H python3 -c 'from vm import rig; why = rig.missing(); print(why or "ok"); raise SystemExit(1 if why else 0)'
-      - name: Install and check
+      - name: Run VM tests
         run: |
           cd Jupiter-testing
           sudo -u ci -H scripts/vm.sh
-      - name: Disk use
+      - name: Show disk usage
         if: always()
         run: df -h /home/ci/.cache /host-mnt || true
-      - name: Keep the logs
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - name: Upload VM logs
+        # On a timeout too, when the serial logs matter most.
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
         with:
           name: vm-logs
           path: |

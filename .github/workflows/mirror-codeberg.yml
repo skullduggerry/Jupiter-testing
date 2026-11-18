@@ -10,6 +10,10 @@ on:
   delete:
   workflow_dispatch:
 
+# The token reads the repo, nothing more.
+permissions:
+  contents: read
+
 concurrency:
   group: mirror-codeberg
   cancel-in-progress: false
@@ -18,7 +22,7 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Push branches and tags

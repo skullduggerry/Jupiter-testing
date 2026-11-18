@@ -14,7 +14,8 @@
 # dotfiles': their Hyprland configs verified by NixOS's Hyprland, and their
 # QML suites run in NixOS's Quickshell, both as the flake's nixpkgs builds
 # them. Either way the flake takes the laid-out dotfiles, not the lock's.
-# Every check runs even after one fails, and each failure is named. Each
+# Every check runs even after one fails, and each failure is named, except
+# where the rest need what failed: an evaluation, or a package to run. Each
 # repo's CI runs its own part; Jupiter-installer's update of flake.lock runs
 # both on the new lock before pushing it.
 set -uo pipefail

@@ -1,10 +1,10 @@
-# The harness, CI and the security model
+# Harness, CI and security model
 
-The reference behind [AGENTS.md](../AGENTS.md): how the stand-ins work, how CI
+The reference behind [CLAUDE.md](../CLAUDE.md): how the stand-ins work, how CI
 lays the repos out, what the security suites hold the code to, and how a
 security test proves itself.
 
-## The harness
+## Harness
 
 **Stand-ins.** A command a helper would reach the system with is a script
 on a PATH of the test's own (`harness.executable()`), which records how it
@@ -103,7 +103,7 @@ the systems apart by `jupiter/distro.py`; its tests set
 `JUPITER_OS_RELEASE` to `installer/fixtures/arch-os-release` unless they say
 NixOS.
 
-### The VM's pitfalls
+### VM pitfalls
 
 - The VM: the console reader searches only new text (`SEARCH_BACK`); a
   pattern like `(.*?)marker` over a long output re-searched it all on every
@@ -160,7 +160,7 @@ nixpkgs moves with the installer's `flake.lock`: its
 it and starts the installer's check.yml on the commit. The pre-push hook
 runs every repo's suites before a push.
 
-## The security model
+## Security model
 
 What the security suites hold the code to, and where:
 
