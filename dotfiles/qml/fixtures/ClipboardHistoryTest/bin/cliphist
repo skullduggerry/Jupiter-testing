@@ -1,0 +1,14 @@
+#!/bin/sh
+# Notes each call, with the lines it was handed, and lists three entries. A
+# delete takes a moment, so the next forget comes while it runs.
+case $1 in
+list) printf '1\tone\n2\ttwo\n3\tthree\n' ;;
+decode | delete)
+    while IFS= read -r line || [ -n "$line" ]; do
+        printf '%s %s\n' "$1" "$line" >>"@FIXTURES@/cliphist"
+        [ "$1" = decode ] && printf '%s' "${line#*	}"
+    done
+    [ "$1" = delete ] && @PYTHON@ -c 'import time; time.sleep(0.5)'
+    ;;
+esac
+printf '%s\n' "$1" >>"@FIXTURES@/calls"

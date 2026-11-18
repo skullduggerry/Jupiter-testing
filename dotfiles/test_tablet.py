@@ -267,6 +267,21 @@ class Helper(unittest.TestCase):
             ],
         )
 
+    def test_a_device_gone_while_read_is_skipped(self) -> None:
+        # A pad that went away between the listing and the read of its
+        # buttons: udev still lists it, sysfs no longer has its keys.
+        (self.root / "dev/input").mkdir(parents=True)
+        device(
+            self.root,
+            "event5",
+            "69",
+            "Wacom Intuos BT M Pad",
+            {"ID_INPUT_TABLET_PAD": "1"},
+        )
+        (self.root / "dev/input/event5").write_bytes(b"")
+        (self.root / "sys/class/input/event5/device/capabilities/key").unlink()
+        self.assertEqual(self.describe(), {"tablet": None, "pad": None})
+
     def test_usage(self) -> None:
         result = subprocess.run(
             [sys.executable, str(HELPER), "what"],

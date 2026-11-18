@@ -1,7 +1,7 @@
 import QtQuick
 import "../shell/style"
 
-// Colors' formulas over the palette (the dotfiles' AGENTS.md, "Theming"): the
+// Colors' formulas over the palette (the dotfiles' CLAUDE.md, "Theming"): the
 // palette is set here directly, as a rendered theme would set it.
 TestCase {
     function usePalette(background: string, foreground: string, slots) {

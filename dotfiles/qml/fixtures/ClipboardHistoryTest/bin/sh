@@ -1,0 +1,3 @@
+#!/bin/sh
+# PATH is empty otherwise: the history pipes cliphist through sh -c.
+exec /bin/sh "$@"

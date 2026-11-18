@@ -2,7 +2,7 @@ import QtQuick
 import "../greeter/style"
 
 // style/ as the login screen runs it ("style/ must run as the greeter" in
-// the dotfiles' AGENTS.md): with no home it builds on its defaults, and a write,
+// the dotfiles' CLAUDE.md): with no home it builds on its defaults, and a write,
 // a process or Quickshell.statePath() would log a warning here.
 TestCase {
     function test_buildsWithoutAHome() {

@@ -115,6 +115,19 @@ class Shelf(unittest.TestCase):
             self.paste()[1], ["plan-1.txt", "hidden-1"], "numbered"
         )
 
+    def test_an_empty_file_is_skipped_not_the_rest(self) -> None:
+        source = self.tmp / "files"
+        source.mkdir()
+        (source / "empty.txt").write_text("")
+        (source / "plan.txt").write_text("the plan")
+        uris = "\r\n".join(
+            "file://" + str(source / name)
+            for name in ("empty.txt", "plan.txt")
+        )
+        self.clipboard(**{"text/uri-list": uris, "text": uris})
+        self.assertEqual(self.paste(), (0, ["plan.txt"]))
+        self.assertFalse((self.shelf / "empty.txt").exists())
+
     def test_a_password_managers_copy_stays_off_a_synced_folder(self) -> None:
         self.shelf.mkdir()
         self.clipboard(

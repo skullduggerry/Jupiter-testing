@@ -109,6 +109,8 @@ class Displays(unittest.TestCase):
             '[{"output": "DP-2", "nonsense": 1}]',
             '[{"output": "DP-2", "scale": "big"}]',
             '[{"output": "DP-2", "vrr": true}]',
+            '[{"output": "DP-2", "scale": NaN}]',
+            '[{"output": "DP-2", "scale": Infinity}]',
             "not json",
         ):
             with self.subTest(rules=bad):
@@ -162,6 +164,41 @@ class Displays(unittest.TestCase):
             result = self.applied(scene)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(len(result.stdout.splitlines()), base)
+
+    @unittest.skipUnless(shutil.which("lua"), "needs lua")
+    def test_a_line_break_in_a_name_stays_in_its_string(self) -> None:
+        # Any control character: a raw one ends a Lua string, and the file.
+        odd = dict(HDMI, output='desc:Odd\r\n\x00Name \\ "q"\x7f')
+        self.run_helper("save", json.dumps([odd]))
+        lua = self.root / "state/quickshell/monitors.lua"
+        loaded = subprocess.run(
+            ["lua", "-e", f"io.write(dofile('{lua}')[1].output)"],
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        self.assertEqual(loaded.stdout.decode(), odd["output"])
+
+    def test_an_unreadable_record_is_kept_aside(self) -> None:
+        state = self.root / "state/quickshell"
+        state.mkdir(parents=True)
+        (state / "monitors.json").write_text('[{"output": "DP-1", "sca')
+        result = subprocess.run(
+            [sys.executable, str(HELPER), "save", json.dumps([HDMI])],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "monitors.json.broken", result.stderr, "said, for the page"
+        )
+        self.assertEqual(
+            (state / "monitors.json.broken").read_text(),
+            '[{"output": "DP-1", "sca',
+        )
+        self.assertEqual(self.kept(), [HDMI])
 
 
 if __name__ == "__main__":

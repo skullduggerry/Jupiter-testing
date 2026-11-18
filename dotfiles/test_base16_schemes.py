@@ -101,6 +101,20 @@ class Schemes(unittest.TestCase):
                     "scripts/base16-schemes.py makes of it: run the script",
                 )
 
+    def test_without_a_theme_the_out_folders_are_rendered_again(self) -> None:
+        # The ones already in -o's folder, not the repo's base16/.
+        out = self.tmp / "out"
+        out.mkdir()
+        (out / "Nord.json").write_text("{}")
+        result = self.make()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            sorted(path.name for path in out.iterdir()), ["Nord.json"]
+        )
+        self.assertIn(
+            "base0D", self.scheme("Nord")["palette"], "Nord rendered again"
+        )
+
     def test_the_slots_are_the_shells_palette(self) -> None:
         for theme, variant in (
             ("Oxocarbon-Dark", "dark"),
@@ -125,6 +139,19 @@ class Schemes(unittest.TestCase):
                 )
                 for slot, colour in ACCENTS.items():
                     self.assertEqual(slots[slot], palette[colour].lower())
+
+    def test_a_grey_slot_is_the_shells_colour_instead(self) -> None:
+        # Gruvbox's aqua is too grey for the shell (Colors.qml's distinct()),
+        # which shows its own cyan: so do the apps.
+        fallback = re.search(
+            r'cyan: root\.slot\(Theme\.palette\.color6, "(#[0-9a-f]{6})"\)',
+            (DOTFILES / ".config/quickshell/style/Colors.qml").read_text(),
+        )
+        assert fallback is not None
+        self.assertEqual(self.make("Gruvbox-Dark").returncode, 0)
+        slots = self.scheme("Gruvbox-Dark")["palette"]
+        self.assertEqual(slots["base0C"], fallback.group(1))
+        self.assertEqual(slots["base0B"], "#98971a", "a green that is green")
 
     def test_nvim_gets_the_same_slots(self) -> None:
         theme = "Gruvbox-Dark"

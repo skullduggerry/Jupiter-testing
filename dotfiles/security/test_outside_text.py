@@ -5,7 +5,7 @@ text as such, and Qt fetches an <img> from wherever it points. Whoever names
 a Wi-Fi network or a Bluetooth device nearby, sends a notification, a
 calendar invitation or a file, or answers through PAM, chooses that text.
 So on every surface that shows it (the dotfiles' convention in
-their AGENTS.md), each Text sets its format: PlainText, or the
+their CLAUDE.md), each Text sets its format: PlainText, or the
 notification body's StyledText without images (qml/NotificationBodyTest).
 The only exceptions are the fixed messages listed here, which hold nothing
 from outside.
@@ -42,6 +42,14 @@ SURFACES = [
     "settings/AudioDeviceRow.qml",
     "settings/AppVolumeRow.qml",
     "settings/StartupPage.qml",
+    # A player's name (MediaPanel's picker), an app's reply placeholder, the
+    # keyboard's and the monitors' names, the system's font families.
+    "panels/PillButton.qml",
+    "panels/InputField.qml",
+    "bar/widgets/KeyboardWidget.qml",
+    "panels/WorkspacePanel.qml",
+    "settings/DisplaysPage.qml",
+    "settings/ChoiceField.qml",
 ]
 # Texts made of the shell's own words, numbers and dates alone, by file.
 FIXED = {

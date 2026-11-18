@@ -12,7 +12,8 @@ TestCase {
         compare(CalendarService.addressProblem("http://localhost:8080"), "");
         compare(CalendarService.addressProblem("http://localhost/nextcloud"), "");
         compare(CalendarService.addressProblem("http://127.0.0.1"), "");
-        for (const address of ["http://cloud.example.org", "http://localhost.example.org", "http://127.0.0.1.example.org", "http://127.0.0.2", "ftp://cloud.example.org", "cloud.example.org", ""])
+        compare(CalendarService.addressProblem("http://[::1]:8080"), "", "IPv6 loopback, as the helpers take it");
+        for (const address of ["http://cloud.example.org", "http://localhost.example.org", "http://127.0.0.1.example.org", "http://127.0.0.2", "http://[::2]", "http://[::1].example.org", "ftp://cloud.example.org", "cloud.example.org", ""])
             verify(CalendarService.addressProblem(address) !== "", `${address} accepted`);
     }
 

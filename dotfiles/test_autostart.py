@@ -162,6 +162,19 @@ class Autostart(unittest.TestCase):
         self.run_helper("remove", "plain", ok=False)
         self.run_helper("add", "no-such-app", ok=False)
 
+    def test_an_id_names_an_entry_in_the_folder_alone(self) -> None:
+        # One with a "/" would name a file anywhere, absolute or ../.
+        outside = self.user.parent / "outside.desktop"
+        outside.parent.mkdir()
+        outside.write_text(entry("Outside"))
+        for ident in (str(outside.with_suffix("")), "../outside", ""):
+            with self.subTest(ident=ident):
+                self.run_helper("set", ident, "off", ok=False)
+                self.run_helper("remove", ident, ok=False)
+                self.run_helper("add", ident, ok=False)
+        self.assertEqual(outside.read_text(), entry("Outside"))
+        self.assertFalse(self.user.exists(), "nothing written")
+
 
 if __name__ == "__main__":
     unittest.main()

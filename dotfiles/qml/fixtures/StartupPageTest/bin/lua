@@ -1,0 +1,3 @@
+#!/bin/sh
+# Hyprland's own list (startup-list.lua), empty here.
+exit 0

@@ -46,6 +46,14 @@ class WallpaperImport(unittest.TestCase):
         self.assertEqual(self.pick(None), (1, ""))
         self.assertFalse(self.library.exists(), "nothing made")
 
+    def test_a_failed_copy_is_an_error_not_a_cancel(self) -> None:
+        # WallpaperService says nothing for 1, the cancel, and reports above.
+        picked = self.tmp / "lake.jpg"
+        picked.write_bytes(b"lake")
+        self.library.parent.mkdir()
+        self.library.write_text("a file where the folder should be")
+        self.assertEqual(self.pick(picked), (2, ""))
+
     def test_added_once_and_numbered(self) -> None:
         first = self.tmp / "Downloads/lake.view.jpg"
         first.parent.mkdir()

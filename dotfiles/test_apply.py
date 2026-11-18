@@ -99,7 +99,9 @@ class Apply(unittest.TestCase):
             ],
         )
         appearance = Path(f"{self.calls}.appearance").read_text()
-        self.assertIn("{{ color2 }}", appearance, "the accent picked")
+        self.assertIn(
+            "accent_name() -%}green{%", appearance, "the accent picked"
+        )
         self.assertIn(
             "BackgroundNormal=1,2,3",
             (self.home / ".config/kdeglobals").read_text(),
@@ -108,7 +110,9 @@ class Apply(unittest.TestCase):
         self.assertEqual(self.state.read_text(), "Oxocarbon-Dark\nall\n")
 
     def test_shell_only(self) -> None:
-        shell_only = [f"-q -C {WALLUST}/shell.toml -s theme Nord"]
+        shell_only = [
+            f"-q -C {WALLUST}/shell.toml --templates-dir {WALLUST}/templates -s theme Nord"
+        ]
         self.assertEqual(
             self.apply("--shell-only", "Nord"),
             shell_only,
@@ -117,15 +121,35 @@ class Apply(unittest.TestCase):
         self.assertEqual(self.state.read_text(), "Nord\nshell-only\n")
         self.assertEqual(self.apply(), shell_only, "again, the same way")
 
+    def test_an_empty_record_applies_the_default(self) -> None:
+        # What a write cut off by a crash leaves: login's bare run must not
+        # stop on it, or it never writes the record again.
+        self.state.parent.mkdir(parents=True)
+        self.state.write_text("")
+        self.assertEqual(self.apply()[0], "-q -d COPY theme Oxocarbon-Dark")
+        self.assertEqual(self.state.read_text(), "Oxocarbon-Dark\nall\n")
+        self.assertFalse(
+            self.state.with_name("theme.new").exists(),
+            "the record moved into place",
+        )
+
     def test_a_saved_scheme_goes_through_cs(self) -> None:
         scheme = next(WALLUST.glob("colorschemes/*.json")).stem
-        self.assertEqual(self.apply(scheme)[0], f"-q -d COPY cs {scheme}.json")
+        self.assertEqual(
+            self.apply(scheme)[0],
+            f"-q -d COPY cs {WALLUST}/colorschemes/{scheme}.json",
+        )
+        self.assertEqual(
+            self.apply("--shell-only", scheme)[0],
+            f"-q -C {WALLUST}/shell.toml --templates-dir {WALLUST}/templates -s cs {WALLUST}/colorschemes/{scheme}.json",
+            "named by this folder, whatever ~/.config/wallust is",
+        )
 
     def test_from_an_image(self) -> None:
         self.assertEqual(
             self.apply("--from", "/pictures/Lake.View.jpg")[:2],
             [
-                "-q -s -T run --save-scheme /pictures/Lake.View.jpg",
+                "-q -s -T -d COPY run --save-scheme /pictures/Lake.View.jpg",
                 "-q -d COPY theme Lake",
             ],
             "a scheme from the image, applied by its name",

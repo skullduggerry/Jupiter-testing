@@ -2,7 +2,7 @@ import QtQuick
 import "../shell/services"
 
 // What the open popups cover, so the toasts move below one in their column
-// (the dotfiles' AGENTS.md, "Where things go": a top-right surface).
+// (the dotfiles' CLAUDE.md, "File placement": a top-right surface).
 TestCase {
     readonly property QtObject calendar: QtObject {}
     readonly property QtObject power: QtObject {}

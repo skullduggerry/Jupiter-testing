@@ -4,7 +4,9 @@ keymap.py has to say what every key types in every layout (a dead key as its
 accent, no control characters), tell an ISO layout from an ANSI one by the key
 left of Z, and compile with Hyprland's options and pass on
 resolve_binds_by_sym, which it asks a stand-in hyprctl on PATH for here; with
-no Hyprland to answer it keeps xkbcommon's defaults.
+no Hyprland to answer it keeps xkbcommon's defaults. Where the loader finds
+no xkbcommon by name (NixOS), it takes the one the shell running it has
+loaded.
 """
 
 from __future__ import annotations
@@ -15,8 +17,9 @@ import subprocess
 import sys
 import unittest
 from typing import Any
+from unittest import mock
 
-from harness import QUICKSHELL, executable, temporary
+from harness import QUICKSHELL, executable, load, temporary
 
 HELPER = QUICKSHELL / "services/keymap.py"
 HYPRCTL = """#!/bin/sh
@@ -81,6 +84,43 @@ class Keymap(unittest.TestCase):
 
     def test_an_unknown_layout(self) -> None:
         self.keymap("no-such-layout", "", self.nowhere, ok=False)
+
+    def test_without_xkbcommon_by_name_the_shells_own(self) -> None:
+        keymap = load(HELPER)
+        real = keymap.ctypes.CDLL
+        # This process stands in for the shell, with xkbcommon loaded.
+        real("libxkbcommon.so.0")
+        opened = []
+
+        def cdll(name: str) -> Any:
+            opened.append(name)
+            if "/" not in name:
+                raise OSError(f"{name}: cannot open shared object file")
+            return real(name)
+
+        with (
+            mock.patch.object(keymap.ctypes, "CDLL", cdll),
+            mock.patch.object(keymap.os, "getppid", return_value=os.getpid()),
+        ):
+            keymap.library()
+        self.assertEqual(opened[0], "libxkbcommon.so.0")
+        self.assertTrue(
+            opened[1].startswith("/") and "/libxkbcommon.so.0" in opened[1],
+            opened,
+        )
+
+        # A path with a space in it, and nothing to find.
+        maps = self.root / "maps"
+        maps.write_text(
+            "7f00-7f01 r--p 00000000 00:25 1      /usr/lib/libc.so.6\n"
+            f"7f01-7f02 r-xp 00000000 00:25 2      {self.root}/a dir/libxkbcommon.so.0.13.2\n"
+        )
+        self.assertEqual(
+            keymap.loaded("libxkbcommon.so.0", str(maps)),
+            f"{self.root}/a dir/libxkbcommon.so.0.13.2",
+        )
+        with self.assertRaises(SystemExit):
+            keymap.loaded("libxkbcommon.so.0", str(self.root / "none"))
 
 
 if __name__ == "__main__":

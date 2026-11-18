@@ -10,7 +10,10 @@ import "../greeter"
 // again; while the reader has greetd, a password entered goes after it, as a
 // login of its own; what the reader says is shown; a typed password still
 // goes as the password; someone with no finger enrolled is told no password
-// was entered. The login a finger finishes is GreeterFingerLoginTest's.
+// was entered. Someone else picked while it scans is not logged in by the
+// finger (the password they typed waits for Enter), nor told how the scan
+// ended. The login a finger finishes is
+// GreeterFingerLoginTest's.
 TestCase {
     readonly property string secret: Quickshell.env("QML_SECRET")
     readonly property FileView log: FileView {
@@ -109,6 +112,47 @@ TestCase {
         }).then(() => {
             compare(thisLogin()[1].response, "");
             compare(GreeterService.errorText, "No password entered!");
+        });
+    }
+
+    function test_aFingerForTheUserPickedBeforeLogsNobodyIn() {
+        ignoreWarning("Received unexpected greetd response");
+        let before = 0;
+        return settled().then(() => {
+            before = created() + 1;
+            enter("hana", "");
+            return tryVerify(() => created() === before && thisLogin().length >= 3, 5000, "the reader has greetd");
+        }).then(() => {
+            enter("frank", "not the password");
+            verify(GreeterService.busy, "the password waits for the reader");
+            return settled();
+        }).then(() => {
+            // greetd's answer to the cancel must not meet a login of frank's.
+            const login = thisLogin();
+            compare(login[0].username, "hana");
+            compare(login.map(request => request.type).filter(type => type === "start_session" || type === "cancel_session").join(" "), "cancel_session", "hana's finger started nothing");
+            compare(GreeterService.password, "not the password", "kept for Enter");
+            compare(GreeterService.errorText, "");
+            GreeterService.submit();
+            return tryVerify(() => created() > before, 5000, "frank's own login").then(() => settled());
+        }).then(() => {
+            compare(thisLogin()[0].username, "frank");
+            compare(thisLogin()[1].response, "not the password");
+            compare(GreeterService.errorText, "Incorrect password");
+            compare(requests().filter(request => request.type === "start_session").length, 0);
+        });
+    }
+
+    function test_aScanForTheUserPickedBeforeEndsQuietly() {
+        ignoreWarning("Received unexpected greetd response");
+        return settled().then(() => {
+            enter("dana", "");
+            verify(GreeterService.scanning);
+            GreeterService.username = "erin";
+            return settled();
+        }).then(() => {
+            compare(GreeterService.errorText, "", "dana's reader timing out is not erin's error");
+            compare(GreeterService.promptText, "Password or fingerprint");
         });
     }
 

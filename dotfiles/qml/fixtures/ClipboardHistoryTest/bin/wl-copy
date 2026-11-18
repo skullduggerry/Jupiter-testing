@@ -1,0 +1,4 @@
+#!/bin/sh
+# What reached the clipboard.
+IFS= read -r copied || true
+printf 'copy %s\n' "$copied" >>"@FIXTURES@/cliphist"
