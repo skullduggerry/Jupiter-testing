@@ -10,8 +10,9 @@ from jupiter.arch.common import packages
 
 from harness import DOTFILES, INSTALLER
 
-# Each server, by the package that brings its command on Arch and on NixOS.
-SERVERS = {
+# Each server, by the package that brings its command on Arch and on NixOS;
+# None where that system has no official one, and nvim goes without.
+SERVERS: dict[str, tuple[str | None, str]] = {
     # quickshell depends on qt6-declarative, which links qmlls6.
     "qmlls": ("quickshell", "kdePackages.qtdeclarative"),
     "lua_ls": ("lua-language-server", "lua-language-server"),
@@ -22,7 +23,7 @@ SERVERS = {
     "cssls": ("vscode-css-languageserver", "vscode-langservers-extracted"),
     "yamlls": ("yaml-language-server", "yaml-language-server"),
     "taplo": ("taplo-cli", "taplo"),
-    "nixd": ("nixd", "nixd"),
+    "nixd": (None, "nixd"),
 }
 
 
@@ -39,6 +40,8 @@ class LanguageServers(unittest.TestCase):
     def test_arch_installs_each(self) -> None:
         arch = set(packages("core.txt") + packages("pacman.txt"))
         for server, (package, _) in SERVERS.items():
+            if package is None:
+                continue
             with self.subTest(server):
                 self.assertTrue(
                     package in arch, f"no {package} for {server} on Arch"
