@@ -22,7 +22,7 @@ SERVERS = {
     "cssls": ("vscode-css-languageserver", "vscode-langservers-extracted"),
     "yamlls": ("yaml-language-server", "yaml-language-server"),
     "taplo": ("taplo-cli", "taplo"),
-    "nil_ls": ("nil", "nil"),
+    "nixd": ("nixd", "nixd"),
 }
 
 
